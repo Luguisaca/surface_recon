@@ -41,10 +41,6 @@ python -m pytest -q
 
 Passing automated tests demonstrates only the behavior covered by those tests and is not a security certification or authorization for a target.
 
-## Public distribution boundary
-
-This repository contains the distributable product surface and public tests. Internal research, benchmark evidence, planning material, HUMAN-QA records and engineering memory are intentionally maintained outside the public distribution surface.
-
 ## License
 
 Surface_Recon is licensed under the PolyForm Noncommercial License 1.0.0. See `LICENSE` and `NOTICE`.
