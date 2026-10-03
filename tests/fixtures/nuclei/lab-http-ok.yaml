@@ -1,0 +1,17 @@
+id: lab-001-http-ok
+
+info:
+  name: LAB-001 controlled HTTP response
+  author: surface-recon-lab
+  severity: info
+  description: Confirms Nuclei executed against the controlled local QA target.
+  tags: lab001,safe
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers:
+      - type: status
+        status:
+          - 200
