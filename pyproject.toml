@@ -1,0 +1,26 @@
+[project]
+name = "surface-recon"
+version = "0.1.0"
+description = "Authorized heterogeneous surface reconnaissance"
+requires-python = ">=3.13"
+dependencies = [
+    "pefile>=2024.8.26",
+]
+
+[project.scripts]
+surface-recon = "surface_recon.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/surface_recon"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
