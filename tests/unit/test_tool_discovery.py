@@ -31,7 +31,7 @@ def test_unknown_capability_has_no_invented_recommendation():
 
 
 def test_discovers_candidate_outside_path_from_bounded_tool_root(monkeypatch, tmp_path):
-    tool = tmp_path / "ProjectDiscovery" / "httpx" / "httpx.exe"
+    tool = tmp_path / "ProjectDiscovery" / "httpx" / "httpx"
     tool.parent.mkdir(parents=True)
     tool.write_bytes(b"")
     monkeypatch.setattr("surface_recon.tooling.shutil.which", lambda name: None)
