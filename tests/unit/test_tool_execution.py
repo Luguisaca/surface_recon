@@ -155,10 +155,34 @@ def test_nmap_network_provider_discovers_hosts_then_deepens_full_tcp(monkeypatch
     assert len(calls) == 2
     assert "-sn" in calls[0] and "-p-" not in calls[0]
     assert "-p-" in calls[1] and "-sV" in calls[1]
+    assert "--open" not in calls[1]  # preserve hosts with zero open ports in XML
     assert set(result.covered_subcapabilities) == {
         "host-discovery", "port-discovery", "service-fingerprinting"
     }
     assert result.observations[-1]["evidence"]["full_tcp_range_tested"] is True
+
+
+def test_nmap_network_provider_does_not_deepen_nondiscriminating_discovery(monkeypatch):
+    tool = ToolCandidate("nmap", "host-recon", ("nmap",), "scan", ("Linux",), "NPSL",
+                         ("host-discovery","port-discovery","service-fingerprinting"), "/usr/bin/nmap")
+    target = Target("n", "192.0.2.0/24", ScopeState.AUTHORIZED, target_type="network")
+    discovery_xml = """<nmaprun>
+    <host><status state="up"/><address addr="192.0.2.0"/></host>
+    <host><status state="up"/><address addr="192.0.2.5"/></host>
+    <host><status state="up"/><address addr="192.0.2.255"/></host>
+    </nmaprun>"""
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append(tuple(args))
+        return ProcessResult(tuple(args), 0, discovery_xml, "")
+    monkeypatch.setattr("surface_recon.tooling.run_process", fake_run)
+
+    result = execute_tool(tool, target)
+
+    assert result.succeeded
+    assert len(calls) == 1
+    assert result.covered_subcapabilities == ("host-discovery",)
+    assert result.observations[-1]["evidence"]["reason"] == "provider-host-discovery-nondiscriminating"
 
 
 def test_nuclei_directory_selection_stays_http_and_token_exact(monkeypatch, tmp_path):
