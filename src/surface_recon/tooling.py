@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -49,6 +50,7 @@ _CAPABILITY_VOCABULARY = {
     "access-control-testing": ("authorization testing", "access control testing", "web fuzzer"),
     "secret-detection": ("secret scanner", "secret detection"),
     "dependency-analysis": ("dependency scanner", "vulnerability scanner", "package scanner"),
+    "static-analysis": ("static analysis", "static analyzer", "source code analysis", "source code scanner"),
 }
 
 
@@ -422,8 +424,30 @@ def execute_tool(tool: ToolCandidate, target) -> ToolExecution:
                 tool.id, True, observations,
                 covered_subcapabilities=("host-discovery",),
             )
+        try:
+            network = ipaddress.ip_network(target.value, strict=False)
+        except ValueError:
+            network = None
+        if (
+            network is not None and network.version == 4 and network.prefixlen <= 30
+            and str(network.network_address) in live and str(network.broadcast_address) in live
+        ):
+            observations.append({
+                "description": "Nmap host discovery was non-discriminating; full TCP deepening was not started",
+                "evidence": {
+                    "kind": "decision", "reason": "provider-host-discovery-nondiscriminating",
+                    "network": target.value, "hosts_reported_live": len(live),
+                },
+                "finding": False, "source": tool.id,
+            })
+            return ToolExecution(
+                tool.id, True, observations,
+                covered_subcapabilities=("host-discovery",),
+            )
         deep_args = (
-            tool.executable, "-Pn", "-p-", "--open", "-sV", "--version-light",
+            # Keep hosts with zero open ports in XML so a completed full-range scan
+            # is not mistaken for a host that was never deepened.
+            tool.executable, "-Pn", "-p-", "-sV", "--version-light",
             "-T3", "-oX", "-", *live,
         )
         deep = run_process(deep_args, timeout=900.0, target=target, action_kind="recon")
