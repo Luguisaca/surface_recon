@@ -190,3 +190,32 @@ def test_hypothesis_trigger_does_not_match_api_inside_server_product(monkeypatch
     assert not any(path.endswith(("/api", "/graphql", "/metrics")) for path in result.discovered)
     assert "content-discovery" in result.covered_subcapabilities
     assert "content-discovery-partial" not in result.covered_subcapabilities
+
+
+def test_host_ground_truth_exposes_bounded_port_depth_without_overclaim(monkeypatch):
+    from surface_recon.model import Target, ScopeState
+    from surface_recon.universal_core import recon_host
+
+    monkeypatch.setattr("surface_recon.universal_core.socket.getaddrinfo", lambda *a, **k: [
+        (2, 1, 6, "", ("127.0.0.1", 0))
+    ])
+
+    class FakeSocket:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    open_ports = {8080, 18080}
+    def fake_connect(address, timeout=0.2):
+        if address[1] not in open_ports:
+            raise OSError("closed control")
+        return FakeSocket()
+
+    monkeypatch.setattr("surface_recon.universal_core.socket.create_connection", fake_connect)
+    target = Target("t-host-depth", "127.0.0.1", ScopeState.AUTHORIZED, target_type="host")
+    observations, covered = recon_host(target)
+    ports = next(row["evidence"] for row in observations if row["evidence"].get("kind") == "ports")
+
+    assert [row["port"] for row in ports["reachable"]] == [8080]
+    assert 18080 not in ports["tested_ports"]
+    assert ports["full_tcp_range_tested"] is False
+    assert covered == ("host-discovery", "port-discovery-partial")
