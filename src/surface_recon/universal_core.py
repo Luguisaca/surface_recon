@@ -153,7 +153,7 @@ def recon_network(target: Target):
                     break
             except OSError:
                 pass
-    observations.append(_obs(f"Bounded network discovery observed {len(live)} responsive host(s)",
+    observations.append(_obs(f"Bounded TCP-probe discovery observed {len(live)} host(s) responding on the tested ports",
         {"kind":"network-hosts","hosts":live,"tested_ports":list(ports),
          "scan_scope":"host-discovery-probes","full_tcp_range_tested":False}))
     # The same bounded host evidence also establishes that the tested ports were

@@ -44,3 +44,8 @@ def test_web_fuzzer_metadata_does_not_overclaim_injection_testing():
     caps = infer_subcapabilities("fast web fuzzer for content discovery")
     assert "content-discovery" in caps
     assert "injection-testing" not in caps
+
+
+def test_static_analysis_is_inferred_from_capability_description_not_tool_name():
+    caps = infer_subcapabilities("language-agnostic static analysis for source code")
+    assert "static-analysis" in caps

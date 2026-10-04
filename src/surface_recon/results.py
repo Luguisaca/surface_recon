@@ -324,7 +324,7 @@ def _surface_data(assessment: Any) -> list[dict[str, Any]]:
                     row["decisions"].append(data)
                 if data.get("kind") in {"hypothesis", "security-hypothesis"}:
                     row["hypotheses"].append(data)
-                if data.get("kind") in {"artifact", "artifact-references", "pe-static-analysis", "archive-analysis", "inventory", "ports", "host", "network", "network-hosts", "service-fingerprints", "opaque-target", "static-analysis", "nmap-surface"}:
+                if data.get("kind") in {"artifact", "artifact-references", "pe-static-analysis", "archive-analysis", "inventory", "ports", "host", "network", "network-hosts", "service-fingerprints", "opaque-target", "static-analysis", "nmap-host-discovery", "nmap-surface"}:
                     row["observed"].append({"description": observation.description, "evidence": minimize(data)})
                 kind = data.get("kind")
                 if kind == "ports":
