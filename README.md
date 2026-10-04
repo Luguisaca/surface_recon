@@ -53,7 +53,7 @@ python -m pip install -e . pytest
 python -m pytest -q
 ```
 
-The current LAB checkpoint is validated by automated tests plus controlled evidence under `benchmarks/` and `specs/`. Human QA remains required before declaring the LAB complete.
+Automated tests cover the behaviors represented in this public repository. Controlled validation evidence and HUMAN QA are also required before declaring the LAB complete; technical gates alone are not a product PASS.
 
 ## License
 
