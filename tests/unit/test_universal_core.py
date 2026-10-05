@@ -54,3 +54,20 @@ def test_host_core_declares_exact_partial_port_coverage(monkeypatch):
     assert ports["tested_port_count"] == len(ports["tested_ports"])
     assert "port-discovery-partial" in covered
     assert "port-discovery" not in covered
+
+
+def test_repository_boundary_excludes_generated_and_dependency_source(tmp_path):
+    (tmp_path / "app.py").write_text("import subprocess\nsubprocess.run(cmd)", encoding="utf-8")
+    (tmp_path / ".venv" / "Lib" / "site-packages").mkdir(parents=True)
+    (tmp_path / ".venv" / "Lib" / "site-packages" / "vendor.py").write_text("eval(data)", encoding="utf-8")
+    (tmp_path / "build" / "lib").mkdir(parents=True)
+    (tmp_path / "build" / "lib" / "app.py").write_text("subprocess.run(cmd)", encoding="utf-8")
+    from surface_recon.universal_core import static_source_review
+    target = Target("repo", str(tmp_path), ScopeState.AUTHORIZED, target_type="repository")
+    inventory, _ = recon_path(target)
+    review, _ = static_source_review(target)
+    assert inventory[0]["evidence"]["file_count"] == 1
+    assert inventory[0]["evidence"]["excluded_non_first_party_files"] == 2
+    candidates = review[0]["evidence"]["candidates"]
+    assert [item["file"] for item in candidates] == ["app.py"]
+    assert review[0]["evidence"]["files_inspected"] == 1

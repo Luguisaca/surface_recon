@@ -10,7 +10,8 @@ from html.parser import HTMLParser
 import hashlib
 import re
 import socket
-from typing import Any
+import time
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse, urlunparse
 from urllib.request import Request, urlopen
@@ -206,12 +207,19 @@ def _hypothesis_candidates(base: str, evidence_text: str, signals: list[str]) ->
     return proposed
 
 
-def recon_url(target: Target, *, max_requests: int | None = None) -> CoreExecution:
+def recon_url(
+    target: Target, *, max_requests: int | None = 30, max_seconds: float | None = 120.0,
+    progress: Callable[[str], None] | None = None,
+) -> CoreExecution:
     target.require_authorized()
     base = target.value
     observations: list[dict[str, Any]] = []
     discovered: list[str] = []
     covered = {"http-probing", "technology-fingerprinting"}
+    started = time.monotonic()
+    def emit(message: str) -> None:
+        if progress is not None:
+            progress(message)
     try:
         parsed = urlparse(base)
         scope_prefix = parsed.path.rstrip("/") if parsed.path not in {"", "/"} else ""
@@ -227,6 +235,7 @@ def recon_url(target: Target, *, max_requests: int | None = None) -> CoreExecuti
         except OSError:
             pass
 
+        emit(f"web: probing entrypoint {base}")
         status, headers, body, final_url = _fetch(base)
         ctype = headers.get("Content-Type", "")
         text = body.decode("utf-8", errors="replace")
@@ -288,7 +297,7 @@ def recon_url(target: Target, *, max_requests: int | None = None) -> CoreExecuti
             })
             _add(queue, known, final_url, candidate, f"hypothesis:{hypothesis}", "interesting")
 
-        while queue and (max_requests is None or requests < max_requests):
+        while queue and (max_requests is None or requests < max_requests) and (max_seconds is None or time.monotonic() - started < max_seconds):
             queue.sort(key=lambda item: item.priority, reverse=True)
             item = queue.pop(0)
             # Static visual/style assets are recorded but not fetched: less noise and traffic.
@@ -298,6 +307,7 @@ def recon_url(target: Target, *, max_requests: int | None = None) -> CoreExecuti
                     "finding": False, "source": "surface-recon-core"})
                 continue
             try:
+                emit(f"web: request {requests + 1}" + (f"/{max_requests}" if max_requests is not None else "") + f" · {item.kind}")
                 child_status, child_headers, child_body, child_final = _fetch(item.url)
                 requests += 1
             except (URLError, OSError, TimeoutError):
@@ -346,9 +356,15 @@ def recon_url(target: Target, *, max_requests: int | None = None) -> CoreExecuti
             covered.add("content-discovery")
         covered.add("error-handling-analysis")
         covered.add("input-surface-analysis")
-        stop_reason = "frontier-exhausted" if not queue else "explicit-qa-budget"
+        if not queue:
+            stop_reason = "frontier-exhausted"
+        elif max_seconds is not None and time.monotonic() - started >= max_seconds:
+            stop_reason = "time-budget-exhausted"
+        else:
+            stop_reason = "request-budget-exhausted"
         observations.append({"description": f"Core decision: reconnaissance stopped after {requests} request(s): {stop_reason}",
             "evidence": {"kind": "decision", "requests": requests, "budget": max_requests,
+                         "time_budget_seconds": max_seconds, "elapsed_seconds": round(time.monotonic() - started, 3),
                          "stop_reason": stop_reason, "remaining_candidates": len(queue)},
             "finding": False, "source": "surface-recon-core"})
         return CoreExecution(True, observations, tuple(sorted(covered)), discovered)
@@ -356,7 +372,7 @@ def recon_url(target: Target, *, max_requests: int | None = None) -> CoreExecuti
         return CoreExecution(False, observations, tuple(sorted(covered)), discovered, str(exc))
 
 
-def recon_target(target: Target) -> CoreExecution:
+def recon_target(target: Target, *, progress=None) -> CoreExecution:
     if target.target_type == "url":
-        return recon_url(target)
+        return recon_url(target, progress=progress)
     return CoreExecution(False, [], (), [], f"Core reconnaissance for {target.target_type or 'unresolved'} is not implemented yet.")

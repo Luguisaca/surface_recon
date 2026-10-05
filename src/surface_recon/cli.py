@@ -32,9 +32,9 @@ def main() -> int:
 
     assess = sub.add_parser(
         "assess",
-        help="Run the core plus available optional extensions.",
-        description="Assess authorized targets; external tooling may enrich core evidence.",
-        epilog="Example: surface-recon assess https://example.com 127.0.0.1 ./artifact",
+        help="Technical/automation assessment output; no visual report.",
+        description="Technical assessment for automation/debugging; prints detailed text and does not create the visual report.",
+        epilog="For normal human use and a visual report, use: surface-recon recon TARGET",
     )
     assess.add_argument(
         "targets",
@@ -71,7 +71,17 @@ def main() -> int:
         if not args.no_open:
             webbrowser.open(report.as_uri())
     elif args.command == "assess":
-        result = assess_targets(args.targets, use_extensions=not args.core_only)
+        started = time.monotonic()
+        print(f"Surface_Recon: iniciando evaluación de {len(args.targets)} objetivo(s)...", flush=True)
+        try:
+            result = assess_targets(
+                args.targets, use_extensions=not args.core_only,
+                progress=lambda message: print(f"Surface_Recon: {message}", flush=True),
+            )
+        except KeyboardInterrupt:
+            print("\nSurface_Recon: evaluación cancelada por el usuario.", file=sys.stderr, flush=True)
+            return 130
+        print(f"Surface_Recon: evaluación completada en {time.monotonic() - started:.1f}s.", flush=True)
         print(render_assessment(result))
     elif args.command == "serve":
         from .web import serve_local

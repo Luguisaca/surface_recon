@@ -59,16 +59,20 @@ python -m pip install .
 
 ## Primer uso
 
-Evaluar un objetivo autorizado:
+Para un usuario, el flujo normal es **reconocimiento + reporte visual**. Ejecuta un objetivo autorizado:
 
 ```bash
-surface-recon assess https://example.com
+python -m surface_recon recon https://example.com
 ```
 
-Ejecutar reconocimiento y generar el flujo actual de evidencia/reporte:
+Surface_Recon mostrará progreso, guardará el informe visual en `reports/surface-recon-latest.html` y lo abrirá en el navegador por defecto.
+
+### Salida técnica / automatización
+
+`assess` es una vista técnica en texto para automatización, depuración e integración. **No genera el reporte visual**:
 
 ```bash
-surface-recon recon https://example.com
+python -m surface_recon assess https://example.com
 ```
 
 Iniciar la interfaz local interactiva:
