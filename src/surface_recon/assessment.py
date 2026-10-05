@@ -115,7 +115,7 @@ def aggregate_status(statuses: Iterable[AssessmentStatus]) -> AssessmentStatus:
     return AssessmentStatus.PENDING
 
 
-def assess_targets(values: list[str], *, use_extensions: bool = True) -> "Assessment":
+def assess_targets(values: list[str], *, use_extensions: bool = True, progress=None) -> "Assessment":
     """Classify and assess authorized targets.
 
     Surface_Recon-owned reconnaissance runs first. Optional external extensions
@@ -180,7 +180,7 @@ def assess_targets(values: list[str], *, use_extensions: bool = True) -> "Assess
                 web_pivots_seen: set[str] = set()
                 if capability.id == "http-recon" and target.target_type == "url":
                     from .core import recon_target
-                    core = recon_target(target)
+                    core = recon_target(target, progress=progress) if progress is not None else recon_target(target)
                     if core.succeeded:
                         target.discovered_resources.extend(
                             item for item in core.discovered if item not in target.discovered_resources
