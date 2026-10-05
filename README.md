@@ -16,6 +16,38 @@ Use Surface_Recon only on systems, applications, networks, repositories, files, 
 
 ## Install from source
 
+### Windows prerequisite
+
+Surface_Recon requires Python 3.13 or newer. A fresh Windows installation may expose `python`/`python3` Microsoft Store aliases even when Python itself is not installed. Verify the runtime first:
+
+```powershell
+py --version
+```
+
+If the Python launcher is unavailable, install a supported Python release from the official Python distribution, then reopen PowerShell and verify `py --version`. Surface_Recon does not silently install or modify system runtimes.
+
+On Windows, the recommended source install is:
+
+```powershell
+git clone https://github.com/Luguisaca/surface_recon.git
+cd surface_recon
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install .
+python -m surface_recon --help
+```
+
+If PowerShell execution policy prevents activation, activation is optional; invoke the environment directly instead:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\python.exe -m surface_recon --help
+```
+
+Dependencies are declared by `pyproject.toml` and installed by pip; a separate `requirements.txt` is intentionally not required for normal installation.
+
+### Linux / Unix-like systems
+
 ```bash
 git clone https://github.com/Luguisaca/surface_recon.git
 cd surface_recon
@@ -24,7 +56,7 @@ source .venv/bin/activate
 python -m pip install .
 ```
 
-Windows activation uses `.venv\\Scripts\\activate` instead.
+
 
 ## First run
 
