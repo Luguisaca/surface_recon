@@ -18,31 +18,35 @@ Use Surface_Recon only on systems, applications, networks, repositories, files, 
 
 ### Windows prerequisite
 
-Surface_Recon requires Python 3.13 or newer. A fresh Windows installation may expose `python`/`python3` Microsoft Store aliases even when Python itself is not installed. Verify the runtime first:
+Surface_Recon requires Python 3.13 or newer. Verify a usable runtime from PowerShell; Windows installations differ and may expose `python`, `python3`, the `py` launcher, or more than one of them:
 
 ```powershell
+python --version
+python3 --version
 py --version
 ```
 
-If the Python launcher is unavailable, install a supported Python release from the official Python distribution, then reopen PowerShell and verify `py --version`. Surface_Recon does not silently install or modify system runtimes.
+You only need **one** of those commands to report Python 3.13 or newer. If none does, install a supported Python release from the official Python distribution, reopen PowerShell, and verify again. Surface_Recon does not silently install or modify system runtimes.
 
-On Windows, the recommended source install is:
+Run the installation **from the cloned repository directory** (the directory containing `pyproject.toml`). The commands below use `python`; if only `python3` or `py` works on your machine, use that command consistently for the venv creation step:
 
 ```powershell
 git clone https://github.com/Luguisaca/surface_recon.git
 cd surface_recon
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install .
-python -m surface_recon --help
-```
-
-If PowerShell execution policy prevents activation, activation is optional; invoke the environment directly instead:
-
-```powershell
+python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install .
 .\.venv\Scripts\python.exe -m surface_recon --help
 ```
+
+Activating the environment is optional. If your PowerShell policy permits local scripts, you may activate it first with:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell reports that script execution is disabled, **you do not need to change the execution policy** to use Surface_Recon. Keep the existing policy and use the direct `.venv\Scripts\python.exe` commands shown above.
+
+If `pip install .` reports that neither `pyproject.toml` nor `setup.py` exists, you are not in the cloned Surface_Recon directory; run `cd surface_recon` (or navigate to your clone) before installing.
 
 Dependencies are declared by `pyproject.toml` and installed by pip; a separate `requirements.txt` is intentionally not required for normal installation.
 
