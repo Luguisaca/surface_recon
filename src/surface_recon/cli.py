@@ -47,6 +47,15 @@ def main() -> int:
         help="Disable all external tool extensions.",
     )
 
+    serve = sub.add_parser(
+        "serve",
+        help="Open the local interactive Surface_Recon interface.",
+        description="Serve the local HUMAN-QA interface on loopback only; explicit target authorization is required.",
+    )
+    serve.add_argument("--port", type=int, default=8041, help="Loopback TCP port (default: 8041).")
+    serve.add_argument("--no-open", action="store_true", help="Do not open the local interface in the browser.")
+    serve.add_argument("--core-only", action="store_true", help="Disable external extensions for UI assessments.")
+
     args = parser.parse_args()
 
     if args.command == "recon":
@@ -64,6 +73,10 @@ def main() -> int:
     elif args.command == "assess":
         result = assess_targets(args.targets, use_extensions=not args.core_only)
         print(render_assessment(result))
+    elif args.command == "serve":
+        from .web import serve_local
+        serve_local(port=args.port, open_browser=not args.no_open, use_extensions=not args.core_only)
+        return 0
     else:
         return 1
     if result.status.value == "failed":

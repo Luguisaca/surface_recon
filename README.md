@@ -40,7 +40,15 @@ Run reconnaissance and generate the current evidence/report flow:
 surface-recon recon https://example.com
 ```
 
-Use `surface-recon --help`, `surface-recon assess --help`, or `surface-recon recon --help` for the current CLI contract.
+Start the local interactive interface:
+
+```bash
+python -m surface_recon serve
+```
+
+The UI binds to loopback (`127.0.0.1`) by default and requires explicit authorization before each assessment. `python -m surface_recon` is the portable invocation when the installed console-script directory is not on `PATH`; `surface-recon serve` is equivalent when it is.
+
+Use `surface-recon --help`, `surface-recon assess --help`, `surface-recon recon --help`, or `python -m surface_recon serve --help` for the current CLI contract.
 
 ## What to expect
 
