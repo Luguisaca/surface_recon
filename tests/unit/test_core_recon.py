@@ -112,7 +112,7 @@ def test_hypotheses_respect_authorized_application_prefix(monkeypatch):
     assert "http://example.test/login" not in requested
 
 
-def test_normal_mode_has_no_arbitrary_global_request_cap(monkeypatch):
+def test_normal_mode_has_bounded_global_request_cap(monkeypatch):
     links = "".join(f'<a href="/r/{i}">r{i}</a>' for i in range(40)).encode()
     def fake_fetch(url, **_):
         if url == "http://example.test/":
@@ -123,11 +123,14 @@ def test_normal_mode_has_no_arbitrary_global_request_cap(monkeypatch):
     monkeypatch.setattr("surface_recon.core._fetch", fake_fetch)
     monkeypatch.setattr("surface_recon.core.socket.getaddrinfo", lambda *args, **kwargs: [])
     target = Target("t1", "http://example.test/", ScopeState.AUTHORIZED, target_type="url")
-    result = recon_url(target)
-    assert all(f"http://example.test/r/{i}" in result.discovered for i in range(40))
+    progress = []
+    result = recon_url(target, progress=progress.append)
     decision = [x["evidence"] for x in result.observations if x["evidence"].get("stop_reason")]
-    assert decision[-1]["stop_reason"] == "frontier-exhausted"
-    assert decision[-1]["budget"] is None
+    assert decision[-1]["stop_reason"] == "request-budget-exhausted"
+    assert decision[-1]["budget"] == 30
+    assert decision[-1]["remaining_candidates"] > 0
+    assert "content-discovery-partial" in result.covered_subcapabilities
+    assert progress
 
 
 def test_directory_index_style_relative_link_does_not_duplicate_current_path():
