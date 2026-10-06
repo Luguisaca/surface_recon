@@ -80,6 +80,8 @@ def _safe_same_origin(base: str, value: str) -> str | None:
 
 
 def _fetch(url: str, timeout: float = 4.0, max_bytes: int = 2_000_000) -> tuple[int, dict[str, str], bytes, str]:
+    from .controls import checkpoint
+    checkpoint(pace=True)
     req = Request(url, headers={"User-Agent": "Surface_Recon/0.2 (+authorized-recon)"})
     try:
         with urlopen(req, timeout=timeout) as response:
@@ -241,7 +243,7 @@ def recon_url(
         text = body.decode("utf-8", errors="replace")
         signals = _technology_signals(headers, text)
         observations.append({"description": f"Core: HTTP {status} {final_url}",
-            "evidence": {"kind": "entrypoint", "url": final_url, "status": status, "content_type": ctype,
+            "evidence": {"kind": "not_found" if status in {404, 410} else "entrypoint", "url": final_url, "status": status, "content_type": ctype,
                          "server": headers.get("Server"), "content_length_observed": len(body)},
             "finding": False, "source": "surface-recon-core"})
         if signals:
@@ -292,7 +294,10 @@ def recon_url(
             observations.append({
                 "description": f"Core hypothesis: {hypothesis} -> {candidate}",
                 "evidence": {"kind": "hypothesis", "hypothesis": hypothesis, "url": candidate,
-                             "reason": "derived from observed application/technology evidence"},
+                             "reason": f"Convención candidata {hypothesis}; derivada de los tokens observados, aún no confirma la ruta.",
+                             "basis": {"url": final_url, "status": status, "signals": signals,
+                                "triggers": [trigger for name, triggers, _ in _HYPOTHESES if name == hypothesis
+                                    for trigger in triggers if re.search(rf'(?<![a-z0-9]){re.escape(trigger)}(?![a-z0-9])', (text + ' ' + ' '.join(signals)).lower())]}},
                 "finding": False, "source": "surface-recon-core",
             })
             _add(queue, known, final_url, candidate, f"hypothesis:{hypothesis}", "interesting")
@@ -312,11 +317,12 @@ def recon_url(
                 requests += 1
             except (URLError, OSError, TimeoutError):
                 continue
-            if soft_not_found and _response_fingerprint(child_status, child_headers, child_body) == soft_not_found:
+            if child_status in {404, 410} or (soft_not_found and _response_fingerprint(child_status, child_headers, child_body) == soft_not_found):
                 observations.append({
                     "description": f"Core rejected soft-not-found candidate: {child_final}",
                     "evidence": {"kind": "not_found", "url": child_final, "status": child_status,
-                                 "discovered_from": item.source, "reason": "matches missing-route baseline"},
+                                 "discovered_from": item.source, "candidate_url": item.url,
+                                 "reason": "HTTP not found" if child_status in {404, 410} else "matches missing-route baseline"},
                     "finding": False, "source": "surface-recon-core",
                 })
                 continue
@@ -347,6 +353,16 @@ def recon_url(
                 for candidate, hinted in passive:
                     _add(queue, known, final_url, candidate, child_final, hinted)
 
+        negative_urls = {str(obs["evidence"].get(key)) for obs in observations
+                         if obs["evidence"].get("kind") == "not_found"
+                         for key in ("url", "candidate_url") if obs["evidence"].get(key)}
+        for obs in observations:
+            data = obs["evidence"]
+            if data.get("kind") in {"hypothesis", "security-hypothesis"} and data.get("url") in negative_urls:
+                data["original_kind"] = data["kind"]
+                data["kind"] = "discarded-hypothesis"
+                data["disposition_reason"] = "Demonstrated not-found response; not active surface."
+
         # Discovery coverage describes whether the evidence frontier was evaluated,
         # not whether it happened to yield a resource. An explicit QA budget can
         # leave the operation partial; an exhausted frontier is a completed check.
@@ -374,5 +390,7 @@ def recon_url(
 
 def recon_target(target: Target, *, progress=None) -> CoreExecution:
     if target.target_type == "url":
-        return recon_url(target, progress=progress)
+        from .controls import current_controls
+        requests, seconds = current_controls.get().web_budget
+        return recon_url(target, max_requests=requests, max_seconds=seconds, progress=progress)
     return CoreExecution(False, [], (), [], f"Core reconnaissance for {target.target_type or 'unresolved'} is not implemented yet.")

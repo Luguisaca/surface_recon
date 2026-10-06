@@ -260,7 +260,7 @@ def render_surface_map(assessment: Any) -> str:
             for signal in sorted(set(signals)):
                 lines.append(f"  - {signal}")
 
-        meaningful = [item for item in urls if item[3] not in {"asset"}]
+        meaningful = [item for item in urls if item[3] not in {"asset", "hypothesis", "security-hypothesis", "not_found", "control"}]
         static_count = sum(1 for item in urls if item[3] == "asset")
         order = {"interesting": 0, "metadata": 1, "page": 2, "entrypoint": 2, "script": 3, "resource": 4}
         meaningful.sort(key=lambda item: (order.get(item[3], 5), item[1]))
@@ -299,7 +299,7 @@ def _surface_data(assessment: Any) -> list[dict[str, Any]]:
     evidence_by_id = {item.id: item for item in assessment.evidence}
     output: list[dict[str, Any]] = []
     for target in assessment.targets:
-        row: dict[str, Any] = {"target": target.value, "type": target.target_type, "addresses": [], "signals": [], "resources": [], "decisions": [], "hypotheses": [], "observed": [], "surface": [], "executions": [], "providers": [], "tools": [], "next": []}
+        row: dict[str, Any] = {"target_id": target.id, "target": target.value, "type": target.target_type, "addresses": [], "signals": [], "resources": [], "decisions": [], "hypotheses": [], "observed": [], "surface": [], "executions": [], "providers": [], "lifecycle": [], "discarded": [], "tools": [], "next": []}
         for observation in assessment.observations:
             if observation.target_id != target.id:
                 continue
@@ -307,25 +307,29 @@ def _surface_data(assessment: Any) -> list[dict[str, Any]]:
                 evidence = evidence_by_id.get(evidence_id)
                 if not evidence or not isinstance(evidence.content, dict):
                     continue
-                data = evidence.content
+                data = {**evidence.content, "evidence_ids": [evidence_id], "observation_ids": [observation.id]}
                 row["addresses"].extend(str(x) for x in data.get("addresses", []))
                 row["signals"].extend(str(x) for x in data.get("signals", []))
-                if data.get("url") and data.get("kind") not in {"hypothesis", "security-hypothesis", "security-finding", "not_found", "control"}:
+                if data.get("url") and data.get("kind") not in {"hypothesis", "discarded-hypothesis", "security-hypothesis", "security-finding", "not_found", "control"}:
                     row["resources"].append({
                         "url": str(minimize(data["url"])), "status": data.get("status"),
                         "content_type": data.get("content_type"), "kind": str(data.get("kind") or "resource"),
-                        "source": minimize(data.get("discovered_from")), "fetched": data.get("fetched", True),
+                        "source": minimize(data.get("discovered_from")), "fetched": data.get("fetched", True), "evidence_ids": [evidence_id],
                     })
                 if data.get("kind") == "execution":
                     row["executions"].append(minimize(data))
+                if data.get("kind") == "provider-lifecycle":
+                    row["lifecycle"].append(minimize(data))
+                if data.get("kind") in {"not_found", "discarded-hypothesis"} or data.get("status") in {404, 410}:
+                    row["discarded"].append(minimize(data))
                 if data.get("kind") == "environment-providers":
                     row["providers"].extend(minimize(data.get("providers", [])))
                 if data.get("kind") == "decision":
                     row["decisions"].append(data)
                 if data.get("kind") in {"hypothesis", "security-hypothesis"}:
-                    row["hypotheses"].append(data)
+                    row["hypotheses"].append({**minimize(data), "evidence_ids": [evidence_id], "observation_id": observation.id})
                 if data.get("kind") in {"artifact", "artifact-references", "pe-static-analysis", "archive-analysis", "inventory", "ports", "host", "network", "network-hosts", "service-fingerprints", "opaque-target", "static-analysis", "nmap-host-discovery", "nmap-surface"}:
-                    row["observed"].append({"description": observation.description, "evidence": minimize(data)})
+                    row["observed"].append({"description": observation.description, "evidence": minimize(data), "evidence_ids": [evidence_id]})
                 kind = data.get("kind")
                 if kind == "ports":
                     for service in data.get("reachable", []):
@@ -377,9 +381,52 @@ def _surface_data(assessment: Any) -> list[dict[str, Any]]:
                             )
                             row["surface"].append({"type":surface_type,"value":label,
                                 "evidence":service,"why":f"open TCP service observed by provider; {identity}"})
+        # Human-facing network surface is semantic, not a concatenation of raw
+        # core/provider rows. Raw observations above remain preserved as evidence.
+        if target.target_type in {"host", "network"}:
+            from .surface_model import merge_service_surface, prioritize_service_surface
+            raw_for_model = []
+            for observation in assessment.observations:
+                if observation.target_id != target.id:
+                    continue
+                for evidence_id in observation.evidence_ids:
+                    evidence = evidence_by_id.get(evidence_id)
+                    if evidence and isinstance(evidence.content, dict):
+                        raw_for_model.append({"source": evidence.source, "evidence": evidence.content, "evidence_id": evidence_id})
+            semantic_services = prioritize_service_surface(merge_service_surface(raw_for_model, target.value))
+            non_service = [x for x in row["surface"] if x.get("type") not in {"network-service", "service-interface", "fingerprinted-service", "open-port"}]
+            row["surface"] = [*non_service, *semantic_services]
+
+        rejected_hypothesis_urls = {
+            str(item.get("url")) for item in row["decisions"]
+            if item.get("reason") == "soft-not-found" and item.get("url")
+        }
+        rejected_hypothesis_urls.update(
+            str(evidence.content.get("url"))
+            for observation in assessment.observations if observation.target_id == target.id
+            for evidence_id in observation.evidence_ids
+            for evidence in [evidence_by_id.get(evidence_id)]
+            if evidence and isinstance(evidence.content, dict)
+            and (evidence.content.get("kind") == "not_found" or evidence.content.get("status") in {404, 410}) and evidence.content.get("url")
+        )
+        rejected_hypothesis_urls.update(str(item["candidate_url"]) for item in row["discarded"] if item.get("candidate_url"))
+        rejected_hypothesis_urls.update(
+            str(item.get("url")) for item in row["resources"]
+            if item.get("status") in {404, 410} and item.get("url")
+        )
+        if rejected_hypothesis_urls:
+            rejected_hypothesis_urls.update(str(item["candidate_url"]) for item in row["discarded"] if item.get("candidate_url"))
+            row["discarded"].extend({**item, "disposition": "discarded-hypothesis"} for item in row["hypotheses"] if str(item.get("url")) in rejected_hypothesis_urls)
+            row["resources"] = [item for item in row["resources"] if item["url"] not in rejected_hypothesis_urls]
+            row["hypotheses"] = [
+                item for item in row["hypotheses"]
+                if not item.get("url") or str(item.get("url")) not in rejected_hypothesis_urls
+            ]
+
         coverage = next((x for x in assessment.coverage if x.target_id == target.id), None)
         row["evaluated"] = list(coverage.evaluated) if coverage else []
         row["unevaluated"] = list(coverage.unevaluated) if coverage else []
+        row["limitations"] = _jsonable(coverage.limitations) if coverage else []
         row["findings"] = [x for x in assessment.findings if x.target_id == target.id]
         caps = [x for x in assessment.capabilities if x.target_id == target.id]
         row["tools"] = sorted({tool for cap in caps for tool in cap.tools_used})
@@ -642,129 +689,12 @@ def render_surface_map(assessment: Any) -> str:
     return "\n".join(lines).rstrip()
 
 
+
+def export_recon(path: Path, assessment: Any):
+    from .reporting import write_exports
+    return write_exports(path, assessment)
+
+
 def write_surface_report_html(path: Path, assessment: Any) -> Path:
-    """Create a self-contained auditor-facing HTML report without external assets."""
-    from html import escape
-    rows = _surface_data(assessment)
-    cards: list[str] = []
-    explanations = {
-        "interesting": ("Prioritaria", "Autenticación, administración, API, telemetría u otra ruta con semántica relevante."),
-        "metadata": ("Metadato", "Información publicada por el sitio que ayuda a comprender su superficie."),
-        "page": ("Página", "Superficie navegable observada."),
-        "entrypoint": ("Entrada", "Punto inicial autorizado."),
-        "script": ("Script", "Código cliente que puede revelar rutas y servicios relacionados."),
-        "resource": ("Recurso", "Recurso observado sin una clasificación más específica."),
-    }
-    for row in rows:
-        resources = []
-        seen: set[str] = set()
-        for item in sorted(row["resources"], key=lambda x: (0 if x["kind"] == "interesting" else 1, x["url"])):
-            if item["kind"] == "asset" or item["url"] in seen:
-                continue
-            seen.add(item["url"])
-            title, meaning = explanations.get(item["kind"], explanations["resource"])
-            source = f"<div class='source'>Descubierto desde: {escape(str(item['source']))}</div>" if item["source"] else ""
-            resources.append(f"<article class='resource {escape(item['kind'])}'><div><span class='badge'>{escape(title)}</span> <span class='status'>HTTP {escape(str(item['status']))}</span></div><code>{escape(item['url'])}</code><p>{escape(meaning)}</p>{source}</article>")
-        insights = []
-        if any("cloudflare" in x.lower() for x in row["signals"]):
-            insights.append("Cloudflare está delante del sitio. Las IP observadas pueden ser del edge; no deben tratarse automáticamente como origen.")
-        if any(x.lower() == "astro" for x in row["signals"]):
-            insights.append("Se observan señales de Astro. Surface_Recon priorizó scripts cliente como fuente de rutas y relaciones adicionales.")
-        if any(x["kind"] == "interesting" for x in row["resources"]):
-            insights.append("Se observó al menos una ruta prioritaria. Es una superficie a revisar, no una vulnerabilidad confirmada.")
-        if row["hypotheses"]:
-            names = sorted({str(x.get("hypothesis") or "hipótesis") for x in row["hypotheses"]})
-            insights.append("El core formuló y acotó comprobaciones autónomas: " + ", ".join(names) + ".")
-        insight_html = "".join(f"<li>{escape(x)}</li>" for x in insights) or "<li>No hay todavía interpretación adicional sustentada por la evidencia observada.</li>"
-        suppressed = len([x for x in row["resources"] if x["kind"] == "asset"])
-        observed_html = "".join(
-            f"<article class='resource'><b>{escape(str(x['description']))}</b><pre>{escape(json.dumps(x['evidence'], ensure_ascii=False, indent=2))}</pre></article>"
-            for x in row["observed"]
-        )
-        surface_html = "".join(
-            f"<article class='resource'><span class='badge'>{escape(str(x.get('type') or 'surface'))}</span> <code>{escape(str(x.get('value') or ''))}</code><p>{escape(str(x.get('why') or ''))}</p></article>"
-            for x in row["surface"]
-        )
-        next_html = "".join(
-            f"<article class='resource'><b>{escape(str(x['capability']))}</b><p>Falta: {escape(', '.join(x['missing']))}</p><p>Por qué: {escape(str(x['reason']))}</p><p>Herramientas candidatas: {escape(', '.join(x['tools']) or 'ninguna localizada')}</p></article>"
-            for x in row["next"]
-        )
-        execution_html = "".join(
-            f"<article class='resource'><b>{escape(str(x.get('tool')))}</b><p>{escape(str(x.get('purpose') or ''))}</p><code>{escape(' '.join(str(v) for v in x.get('command', [])))}</code></article>"
-            for x in row["executions"]
-        )
-        hypothesis_html = ""
-        for hypothesis in row["hypotheses"]:
-            classes = ", ".join(str(x) for x in hypothesis.get("candidate_classes", []))
-            recipe = hypothesis.get("validation_recipe") if isinstance(hypothesis.get("validation_recipe"), dict) else {}
-            checks = "".join(
-                f"<li><b>{escape(str(x.get('class')))}</b>: {escape(str(x.get('objective')))}</li>"
-                for x in recipe.get("checks", []) if isinstance(x, dict)
-            )
-            hypothesis_html += (
-                "<article class='resource'>"
-                f"<b>{escape(str(hypothesis.get('hypothesis') or 'hipótesis'))}</b>"
-                f"<code>{escape(str(hypothesis.get('url') or row['target']))}</code>"
-                f"<p>{escape(str(hypothesis.get('reason') or ''))}</p>"
-                f"<p><b>Clases candidatas:</b> {escape(classes)}</p>"
-                + (f"<ul>{checks}</ul>" if checks else "")
-                + (f"<p><b>Regla:</b> {escape(str(recipe.get('success_rule')))}</p>" if recipe.get("success_rule") else "")
-                + "</article>"
-            )
-        evidence_index = {item.id: item for item in assessment.evidence}
-        finding_html = ""
-        for finding in row["findings"]:
-            detail = []
-            for evidence_id in finding.evidence_ids:
-                evidence = evidence_index.get(evidence_id)
-                if evidence and isinstance(evidence.content, dict):
-                    detail.append(" · ".join(str(x) for x in (
-                        evidence.content.get("classification"),
-                        evidence.content.get("cwe"),
-                        evidence.content.get("confidence"),
-                        evidence.content.get("severity"),
-                        evidence.content.get("matched_at"),
-                        evidence.content.get("template_id"),
-                        evidence.content.get("impact_demonstrated"),
-                    ) if x))
-                    validation = evidence.content.get("validation")
-                    if isinstance(validation, dict) and validation.get("goal"):
-                        detail.append("Validation: " + str(validation["goal"]))
-            finding_html += f"<article class='resource interesting'><b>{escape(finding.description)}</b><p>{escape(' | '.join(detail))}</p></article>"
-        cards.append(f"""
-<section class='target'>
-<h2>{escape(row['target'])}</h2>
-<div class='grid'>
-<div class='panel'><h3>Qué entendió</h3><ul>{insight_html}</ul></div>
-<div class='panel'><h3>Contexto</h3><p><b>Tecnologías/señales:</b> {escape(' · '.join(sorted(set(row['signals']))) or 'sin señales')}</p><p><b>Direcciones:</b> {escape(', '.join(sorted(set(row['addresses']))) or 'no observadas')}</p></div>
-</div>
-<h3>Caracterización</h3>
-{observed_html or "<p>Sin caracterización adicional para este tipo de objetivo.</p>"}
-<h3>Superficie relevante</h3>
-{surface_html + ''.join(resources) or "<p>No se observó todavía superficie de ataque clasificable.</p>"}
-{f"<p class='muted'>Se ocultaron {suppressed} assets estáticos web para reducir ruido.</p>" if suppressed else ""}
-<div class='grid'>
-<div class='panel'><h3>Cobertura</h3><p><b>Evaluado:</b> {escape(', '.join(row['evaluated']) or 'nada')}</p><p><b>No evaluado:</b> {escape(', '.join(row['unevaluated']) or 'nada del modelo actual')}</p></div>
-<div class='panel'><h3>Riesgo</h3><p><b>{len(row['findings'])}</b> hallazgos sustentados por evidencia.</p><p class='muted'>Cero hallazgos no equivale a objetivo seguro.</p></div>
-</div>
-<h3>Hipótesis de validación</h3>
-{hypothesis_html or "<p>No se formularon hipótesis adicionales a partir de la evidencia observada.</p>"}
-<h3>Hallazgos</h3>
-{finding_html or "<p>No se confirmaron hallazgos dentro de la cobertura ejecutada.</p>"}
-<h3>Qué ejecutó y cómo</h3>
-{execution_html or "<p>Solo se utilizaron capacidades internas en esta ejecución.</p>"}
-<h3>Siguientes fases</h3>
-{next_html or "<p>No hay gaps modelados que generen una siguiente fase automática.</p>"}
-</section>""")
-    html = f"""<!doctype html><html lang='es'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Surface_Recon · Informe</title><style>
-body{{font-family:Segoe UI,Arial,sans-serif;background:#0d1117;color:#e6edf3;margin:0}}main{{max-width:1100px;margin:auto;padding:36px}}
-h1{{margin-bottom:4px}}h2{{margin-top:38px}}.lead,.muted,.source{{color:#8b949e}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}}
-.panel,.resource{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:10px 0}}.resource.interesting{{border-left:4px solid #f0883e}}
-.badge{{font-weight:700}}.status{{color:#8b949e;margin-left:8px}}code{{display:block;color:#79c0ff;overflow-wrap:anywhere;margin-top:10px}}
-p{{line-height:1.5}}li{{margin:8px 0}}footer{{margin:35px 0;color:#8b949e}}
-</style><main><h1>Surface_Recon</h1><p class='lead'>Auditoría autónoma de superficie · evidencia trazable · capacidades adaptativas</p>
-{''.join(cards)}<footer>Este informe describe superficie observada dentro del alcance suministrado. No es una declaración de seguridad ni una evaluación exhaustiva.</footer></main></html>"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(html, encoding="utf-8")
-    return path
+    from .reporting import write_human_report
+    return write_human_report(path, assessment)

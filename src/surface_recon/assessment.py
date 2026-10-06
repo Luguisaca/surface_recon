@@ -115,7 +115,37 @@ def aggregate_status(statuses: Iterable[AssessmentStatus]) -> AssessmentStatus:
     return AssessmentStatus.PENDING
 
 
-def assess_targets(values: list[str], *, use_extensions: bool = True, progress=None) -> "Assessment":
+def assess_targets(values: list[str], *, use_extensions: bool = True, progress=None, controls=None, cancel=None) -> "Assessment":
+    from .controls import ReconControls, current_controls, current_cancel, checkpoint
+    policy = controls or ReconControls()
+    policy.validate(use_extensions=use_extensions)
+    # Resolve explicit requests before any reconnaissance. A typo never falls back.
+    from .classification import classify_target
+    from .capabilities import applicable_capabilities
+    from .model import Target, ScopeState
+    from .tooling import discover_tools
+    available = {}
+    for index, value in enumerate(values):
+        target = classify_target(Target(f"preflight-{index}", value, ScopeState.AUTHORIZED))
+        if policy.profile == "passive" and target.target_type not in {"path", "binary", "directory", "repository"}:
+            raise ValueError("El modo passive solo analiza evidencia local; no envía solicitudes de red ni resuelve DNS.")
+        if policy.include:
+            for cap in applicable_capabilities(target):
+                for tool in discover_tools(cap.id):
+                    available[tool.id] = tool
+    if policy.include and (not use_extensions or set(policy.include) - available.keys()):
+        raise ValueError("Proveedor solicitado inválido, no disponible o sin adaptador aplicable verificado: " + ", ".join(policy.include))
+    token = current_controls.set(policy)
+    cancel_token = current_cancel.set(cancel)
+    try:
+        checkpoint()
+        return _assess_targets(values, use_extensions=use_extensions and policy.extensions, progress=progress)
+    finally:
+        current_controls.reset(token)
+        current_cancel.reset(cancel_token)
+
+
+def _assess_targets(values: list[str], *, use_extensions: bool = True, progress=None) -> "Assessment":
     """Classify and assess authorized targets.
 
     Surface_Recon-owned reconnaissance runs first. Optional external extensions
@@ -134,6 +164,10 @@ def assess_targets(values: list[str], *, use_extensions: bool = True, progress=N
     all_capabilities = []
 
     for index, value in enumerate(values, start=1):
+        from .controls import checkpoint
+        checkpoint()
+        if progress:
+            progress(f"objetivo {index}/{len(values)}: caracterización y selección")
         target = classify_target(
             Target(
                 id=f"target-{index}",
@@ -334,6 +368,11 @@ def assess_targets(values: list[str], *, use_extensions: bool = True, progress=N
                         "source": "surface-recon-planner",
                     })
 
+                from .controls import current_controls
+                from .tooling import discover_tools, candidates_for, _find_executable
+                policy = current_controls.get()
+                detected_tools = discover_tools(capability.id) if use_extensions else []
+                selected_tools = []
                 if use_extensions:
                     covered_by_core = {
                         subcapability
@@ -342,9 +381,22 @@ def assess_targets(values: list[str], *, use_extensions: bool = True, progress=N
                     }
                     missing_after_core = set(capability.required_subcapabilities) - covered_by_core
                     selected_tools = select_tools_for_gaps(capability.id, missing_after_core)
+                    selected_tools = [tool for tool in selected_tools if tool.id not in policy.exclude and (not policy.include or tool.id in policy.include)]
                     if selected_tools:
-                        provider_results = [execute_tool(tool, target) for tool in selected_tools]
+                        provider_results = []
+                        for tool in selected_tools:
+                            checkpoint()
+                            if progress:
+                                progress(f"provider {tool.id}: seleccionado; ejecutando contrato seguro")
+                            provider_results.append(execute_tool(tool, target))
                         executions.extend(provider_results)
+                        for tool, result in zip(selected_tools, provider_results):
+                            planner_observations.append({"description": f"Provider {tool.id}: attempted execution",
+                                "evidence": {"kind": "provider-lifecycle", "tool": tool.id, "detected": True, "selected": True,
+                                    "executed": any(o.get("evidence", {}).get("command") for o in result.observations),
+                                    "succeeded": result.succeeded, "reason": result.error or "adapter returned evidence",
+                                    "covered_subcapabilities": list(result.covered_subcapabilities)},
+                                "finding": False, "source": "surface-recon-planner"})
                         for provider_result in provider_results:
                             if not provider_result.succeeded:
                                 planner_observations.append({
@@ -415,6 +467,18 @@ def assess_targets(values: list[str], *, use_extensions: bool = True, progress=N
                                                     if item not in target.discovered_resources
                                                 )
 
+                for tool in candidates_for(capability.id):
+                    if tool.id not in {t.id for t in selected_tools}:
+                        executable = _find_executable(tool.executable_names)
+                        planner_observations.append({"description": f"Provider {tool.id}: skipped",
+                            "evidence": {"kind": "provider-lifecycle", "tool": tool.id, "detected": bool(executable),
+                                "selected": False, "executed": False, "skipped": True,
+                                "reason": "extensiones desactivadas por perfil/core-only/intensidad" if not use_extensions else
+                                    "excluido por el usuario" if tool.id in policy.exclude else
+                                    "fuera del filtro de inclusión" if policy.include and tool.id not in policy.include else
+                                    "no disponible o identidad incompatible" if tool.id not in {t.id for t in detected_tools} else
+                                    "no añade cobertura pendiente frente a la selección mínima"},
+                            "finding": False, "source": "surface-recon-planner"})
                 successful = [item for item in executions if item.succeeded]
                 observations = [obs for item in successful for obs in item.observations]
                 observations.extend(planner_observations)

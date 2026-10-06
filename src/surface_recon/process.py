@@ -32,6 +32,33 @@ def run_process(
         raise ValueError("args must be a non-empty structured argument sequence")
 
     normalized = tuple(str(arg) for arg in args)
+    from .controls import checkpoint, current_cancel, ReconCancelled
+    checkpoint()
+    cancel = current_cancel.get()
+    if cancel is not None:
+        import time
+        try:
+            process = subprocess.Popen(normalized, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except OSError as exc:
+            return ProcessResult(normalized, 127, "", str(exc))
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                checkpoint()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    return ProcessResult(normalized, 124, stdout, stderr or "process timed out")
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.2, remaining))
+                    return ProcessResult(normalized, process.returncode, stdout, stderr)
+                except subprocess.TimeoutExpired:
+                    continue
+        except (ReconCancelled, KeyboardInterrupt):
+            process.kill()
+            process.communicate()
+            raise
     try:
         completed = subprocess.run(
             normalized,
