@@ -38,7 +38,7 @@ def test_web_ui_exposes_recon_controls_and_human_wording():
     from surface_recon.web import _HTML
     assert 'Perfil' in _HTML
     assert 'Pasivo' in _HTML
-    assert 'Solo providers' in _HTML
+    assert 'Solo proveedores' in _HTML
     assert 'Qué falta comprobar' in _HTML
     assert 'Gaps / siguientes fases' not in _HTML
 

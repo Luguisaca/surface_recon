@@ -283,6 +283,14 @@ def _assess_targets(values: list[str], *, use_extensions: bool = True, progress=
                                         item for item in web.discovered
                                         if item not in target.discovered_resources
                                     )
+                                    if scheme == "http":
+                                        observations_owned.append({
+                                            "description": f"Superficie HTTP sin TLS observada en {pivot.value}",
+                                            "evidence": {"kind": "security-condition", "condition": "cleartext-http-surface",
+                                                         "url": pivot.value, "port": port, "impact_demonstrated": False,
+                                                         "reason": "HTTP accesible; validar intenci?n, redirecci?n, datos y controles antes de concluir vulnerabilidad."},
+                                            "finding": True, "sufficient_evidence": False, "source": "surface-recon-core",
+                                        })
                                     observations_owned.append({
                                         "description": f"Pivoted from reachable TCP/{port} into web reconnaissance",
                                         "evidence": {"kind":"decision","reason":"service-to-web-pivot",
@@ -329,6 +337,15 @@ def _assess_targets(values: list[str], *, use_extensions: bool = True, progress=
                                                 x for x in web.discovered
                                                 if x not in target.discovered_resources
                                             )
+                                            if scheme == "http":
+                                                observations_owned.append({
+                                                    "description": f"Superficie HTTP sin TLS observada en {pivot.value}",
+                                                    "evidence": {"kind": "security-condition", "condition": "cleartext-http-surface",
+                                                                 "url": pivot.value, "port": port,
+                                                                 "impact_demonstrated": False,
+                                                                 "reason": "HTTP accesible; validar intenci?n, redirecci?n, datos y controles antes de concluir vulnerabilidad."},
+                                                    "finding": True, "sufficient_evidence": False, "source": "surface-recon-core",
+                                                })
                                             observations_owned.append({
                                                 "description": f"Pivoted network host {derived.value} TCP/{port} into web reconnaissance",
                                                 "evidence": {"kind":"decision","reason":"network-host-to-web-pivot",
@@ -447,6 +464,14 @@ def _assess_targets(values: list[str], *, use_extensions: bool = True, progress=
                                             web = recon_target(pivot)
                                             if web.succeeded:
                                                 observations_owned = list(web.observations)
+                                                if scheme == "http":
+                                                    observations_owned.append({
+                                                        "description": f"Superficie HTTP sin TLS observada en {pivot.value}",
+                                                        "evidence": {"kind": "security-condition", "condition": "cleartext-http-surface",
+                                                                     "url": pivot.value, "port": port, "impact_demonstrated": False,
+                                                                     "reason": "HTTP accesible; validar intenci?n, redirecci?n, datos y controles antes de concluir vulnerabilidad."},
+                                                        "finding": True, "sufficient_evidence": False, "source": "surface-recon-core",
+                                                    })
                                                 observations_owned.append({
                                                     "description": f"Pivoted provider-observed {address} TCP/{port} into web reconnaissance",
                                                     "evidence": {

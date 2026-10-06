@@ -66,3 +66,23 @@ The current LAB checkpoint is validated by automated tests plus controlled evide
 ## License
 
 Surface_Recon is licensed under the PolyForm Noncommercial License 1.0.0. See `LICENSE` and `NOTICE`.
+
+### Autocompletado de CLI
+
+Surface_Recon instala soporte de completion mediante `argcomplete`. Se activa una vez por shell:
+
+```bash
+# Bash / Kali / Parrot
+eval "$(register-python-argcomplete surface-recon)"
+```
+
+```powershell
+# PowerShell / Windows (sesi?n actual)
+register-python-argcomplete --shell powershell surface-recon | Out-String | Invoke-Expression
+```
+
+Despu?s, `surface-recon recon --<TAB>` completa las opciones disponibles. La activaci?n persistente depende del perfil/configuraci?n del shell y no se modifica autom?ticamente.
+
+### Ritmo y providers
+
+`--mode passive` es la opci?n de **cero red**: para objetivos de red falla cerrado en vez de resolver DNS o enviar probes. `--intensity low --pace-ms N` reduce el ritmo del core y desactiva providers externos, pero **no garantiza invisibilidad ni evasi?n de detecci?n**. `--provider-timeout SEGUNDOS` permite ampliar o reducir el tiempo m?ximo de un provider sin eliminar los l?mites existentes.

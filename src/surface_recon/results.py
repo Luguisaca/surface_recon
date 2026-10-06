@@ -202,8 +202,8 @@ def render_findings(
     supported = sum(f.status.value == "supported" for f in findings)
     potential = sum(f.status.value != "supported" for f in findings)
     lines = [
-        f"Confirmed by available evidence: {supported}",
-        f"Potential / not confirmed: {potential}",
+        f"Sustentados por evidencia disponible: {supported}",
+        f"Potenciales / no confirmados: {potential}",
     ]
 
     for finding in findings:

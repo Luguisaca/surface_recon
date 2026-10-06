@@ -18,7 +18,7 @@ _HTML = r"""<!doctype html><html lang="es"><head><meta charset="utf-8"><meta nam
 <section class="panel"><label>Objetivo autorizado</label><div class="row"><input id="target" type="text" placeholder="URL, host, red, archivo, directorio o repositorio"><button id="run">Reconocer</button></div>
 <div class="row"><label>Perfil <select id="profile"><option value="auto">Auto</option><option value="passive">Pasivo · solo evidencia local</option><option value="active">Activo · core acotado</option><option value="balanced">Equilibrado · providers pertinentes</option><option value="deep">Profundo · mayor presupuesto web</option></select></label>
 <label>Ruido <select id="noise"><option value="normal">Normal</option><option value="low">Bajo</option></select></label>
-<label>Solo providers <input id="include" type="text" placeholder="nmap,nuclei…"></label><label>Excluir <input id="exclude" type="text" placeholder="nmap,nuclei…"></label></div>
+<label>Solo proveedores <input id="include" type="text" placeholder="nmap,nuclei…"></label><label>Excluir <input id="exclude" type="text" placeholder="nmap,nuclei…"></label></div>
 <label><input id="authorized" type="checkbox"> Confirmo que estoy autorizado a evaluar este objetivo.</label>
 <p class="muted">Auto decide por cobertura. Los providers son overrides avanzados; detectado no significa ejecutado. 0 hallazgos no significa seguro.</p><p id="status"></p></section>
 <section id="result" hidden><article class="warn"><h2>Qué falta comprobar</h2><p>La cobertura no evaluada y las limitaciones aparecen dentro del informe. No se convierten en ausencia de riesgo.</p></article><div id="human"></div></section>

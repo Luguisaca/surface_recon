@@ -10,11 +10,17 @@ class ReconControls:
     noise: str = "normal"
     include: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
+    provider_timeout: int = 300
+    pace_ms: int = 100
 
     def validate(self, *, use_extensions=True):
         from .tooling import adapter_catalog, discover_tools
         if self.profile not in {"auto", "passive", "active", "balanced", "deep"}:
             raise ValueError("Perfil desconocido.")
+        if not 0 <= int(self.pace_ms) <= 5000:
+            raise ValueError("Pausa fuera de rango: usa 0..5000 ms.")
+        if not 30 <= int(self.provider_timeout) <= 3600:
+            raise ValueError("Tiempo m?ximo de provider fuera de rango: usa 30..3600 segundos.")
         if self.noise not in {"low", "normal"}:
             raise ValueError("Intensidad desconocida: usa low o normal.")
         catalog = adapter_catalog()
@@ -54,7 +60,7 @@ def checkpoint(*, pace=False):
         raise ReconCancelled("Reconocimiento cancelado por el usuario.")
     if pace and current_controls.get().noise == "low":
         if event is not None:
-            if event.wait(0.1):
+            if event.wait(current_controls.get().pace_ms / 1000):
                 raise ReconCancelled("Reconocimiento cancelado por el usuario.")
         else:
-            time.sleep(0.1)
+            time.sleep(current_controls.get().pace_ms / 1000)

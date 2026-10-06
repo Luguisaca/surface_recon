@@ -96,7 +96,7 @@ def findings_from_capability_result(
                 description=str(minimize(raw_items[0]["description"])),
                 observations=grouped_observations,
                 evidence=grouped_evidence,
-                sufficient_evidence=bool(grouped_evidence),
+                sufficient_evidence=bool(grouped_evidence) and all(item.get("sufficient_evidence", True) for item in raw_items),
             )
         )
 

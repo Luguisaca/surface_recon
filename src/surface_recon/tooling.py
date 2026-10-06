@@ -403,6 +403,8 @@ def _parse_nmap_hosts(xml_text: str) -> list[dict]:
 
 def execute_tool(tool: ToolCandidate, target) -> ToolExecution:
     """Execute a discovered tool using bounded, non-destructive defaults."""
+    from .controls import current_controls
+    provider_timeout = float(current_controls.get().provider_timeout)
     if not tool.executable:
         return ToolExecution(tool.id, False, [], "Tool executable is unavailable.")
 
@@ -412,7 +414,7 @@ def execute_tool(tool: ToolCandidate, target) -> ToolExecution:
             discovery_args, timeout=300.0, target=target, action_kind="recon"
         )
         if not discovery.succeeded:
-            return ToolExecution(tool.id, False, [], discovery.stderr or "Nmap host discovery failed.")
+            return ToolExecution(tool.id, False, [{"description": "Nmap host discovery process was launched but did not complete", "evidence": {"kind": "execution-attempt", "tool": tool.id, "command": list(discovery_args), "completed": False}, "finding": False, "source": tool.id}], discovery.stderr or "Nmap host discovery failed.")
         try:
             discovered_hosts = _parse_nmap_hosts(discovery.stdout)
         except ET.ParseError:
@@ -457,7 +459,7 @@ def execute_tool(tool: ToolCandidate, target) -> ToolExecution:
             tool.executable, "-Pn", "-p-", "-sV", "--version-light",
             "-T3", "-oX", "-", *live,
         )
-        deep = run_process(deep_args, timeout=900.0, target=target, action_kind="recon")
+        deep = run_process(deep_args, timeout=provider_timeout, target=target, action_kind="recon")
         if not deep.succeeded:
             observations.append({
                 "description": "Nmap per-host deepening did not complete",
@@ -591,9 +593,9 @@ def execute_tool(tool: ToolCandidate, target) -> ToolExecution:
     else:
         return ToolExecution(tool.id, False, [], "No safe execution adapter is defined.")
 
-    result = run_process(args, timeout=300.0 if tool.id == "nmap" else 60.0, target=target, action_kind="recon")
+    result = run_process(args, timeout=provider_timeout if tool.id == "nmap" else min(provider_timeout, 60.0), target=target, action_kind="recon")
     if not result.succeeded:
-        return ToolExecution(tool.id, False, [], result.stderr or f"exit code {result.returncode}")
+        return ToolExecution(tool.id, False, [{"description": f"{tool.id} process was launched but did not complete successfully", "evidence": {"kind": "execution-attempt", "tool": tool.id, "command": list(args), "completed": False}, "finding": False, "source": tool.id}], result.stderr or f"exit code {result.returncode}")
 
     provenance = {
         "description": f"Executed {tool.id}: {tool.purpose}",

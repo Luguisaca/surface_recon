@@ -71,7 +71,8 @@ def write_exports(path, assessment, *, payload=None):
     payload = payload or export_payload(assessment)
     json_path, csv_path = path.with_suffix(".json"), path.with_suffix(".csv")
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    csv_path.write_text(csv_export(payload), encoding="utf-8-sig")
+    with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        handle.write(csv_export(payload))
     return json_path, csv_path
 
 
@@ -127,9 +128,9 @@ def report_body(payload):
             [(h, sum(s.get("host") == h for s in row["surface"]), sorted(set(ids))) for h, ids in hosts.items()]), "</article>"]
         services = [s for s in row["surface"] if s.get("port")]
         parts += ["<article><h3>Servicios y endpoints de red</h3>", table(
-            ["Endpoint", "Servicio / producto", "Confianza", "Prioridad / siguiente paso", "Evidencia"],
+            ["Endpoint", "Servicio / producto", "Confianza", "Descubierto por", "Prioridad / siguiente paso", "Evidencia"],
             [(s["value"], " ".join(str(s.get(k) or "") for k in ("service", "product", "version")),
-              s.get("identity_confidence"), (s.get("review_priority") or "") + ": " + (s.get("priority_reason") or s.get("why") or ""),
+              s.get("identity_confidence"), ", ".join(s.get("evidence_sources", [])), (s.get("review_priority") or "") + ": " + (s.get("priority_reason") or s.get("why") or ""),
               s.get("evidence_ids") or s.get("evidence_sources", [])) for s in services]), "</article>"]
         parts += ["<article><h3>Endpoints HTTP</h3>", table(["URL", "HTTP", "Tipo", "Origen / evidencia"],
             [(x["url"], x["status"], x["kind"], str(x.get("source") or "entrada") + " · " + ", ".join(x.get("evidence_ids", [])))
@@ -171,7 +172,7 @@ def report_body(payload):
         for limit in row.get("limitations", []):
             parts.append("<p>Limitación: " + escape(human_error(limit["reason"])) + " · " + escape(limit["impact"]) + "</p>")
         parts += ["</article><article><h3>Providers: detectado → seleccionado → ejecutado</h3>", table(
-            ["Provider", "Detectado", "Seleccionado", "Ejecutado", "Omitido / motivo"],
+            ["Proveedor", "Detectado", "Seleccionado", "Proceso lanzado", "Resultado / motivo"],
             [(x.get("tool") or x.get("name"), "sí" if x.get("detected") else "no", "sí" if x.get("selected") else "no", "sí" if x.get("executed") else "no", human_error(x.get("reason") or "")) for x in row.get("lifecycle", [])]),
             "<p>Las capacidades internas y sus evidencias también se conservan en el export. Detectado no significa ejecutado ni cobertura completa.</p></article>"]
         parts.append("<details><summary>Evidencia secundaria JSON y descartados</summary><pre>" + escape(json.dumps(row, ensure_ascii=False, indent=2)) + "</pre></details></section>")
