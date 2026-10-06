@@ -42,7 +42,11 @@ def test_url_composes_discovered_tools_and_normalizes_evidence(monkeypatch):
     assert assessment.coverage[0].unevaluated == [
         "content-discovery", "error-handling-analysis", "input-surface-analysis",
     ]
-    assert len(assessment.observations) == 2
+    # Provider lifecycle is separate traceable evidence, not scanner output.
+    lifecycle = [ev.content for ev in assessment.evidence if isinstance(ev.content, dict) and ev.content.get("kind") == "provider-lifecycle"]
+    assert len(lifecycle) == 2
+    assert all(item["selected"] and not item["executed"] for item in lifecycle)
+    assert len(assessment.observations) == 4
     assert len(assessment.findings) == 0
 
     from surface_recon.results import render_assessment
@@ -145,7 +149,8 @@ def test_network_provider_service_evidence_pivots_into_web_recon(monkeypatch):
         if item["value"].startswith("192.0.2.10:")
     ]
     assert provider_surfaces
-    assert all(item["type"] == "open-port" for item in provider_surfaces)
+    assert all(item["type"] == "network-service" for item in provider_surfaces)
+    assert all(item["identity_confidence"] == "provider-hint" for item in provider_surfaces)
     decisions = [e.content for e in assessment.evidence if isinstance(e.content, dict)]
     assert any(x.get("reason") == "provider-service-to-web-pivot" for x in decisions)
 

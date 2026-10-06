@@ -37,7 +37,7 @@ def classify_target(target: Target) -> Target:
         return target
 
     path = Path(value)
-    if value.startswith(("./", "../", ".\\", "..\\")) or path.exists():
+    if value.startswith(("./", "../", ".\\", "..\\")) or path.is_absolute() or path.exists():
         if path.exists() and path.is_dir() and (path / ".git").exists():
             target.target_type = "repository"
         elif path.exists() and path.is_dir():

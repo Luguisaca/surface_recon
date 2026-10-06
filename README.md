@@ -1,53 +1,20 @@
 # Surface_Recon
 
-**Español** | [English](README.en.md)
+Surface_Recon is an experimental reconnaissance orchestrator for authorized security assessment. It characterizes heterogeneous targets, maps required reconnaissance capabilities, reuses compatible capabilities already available in the environment, correlates evidence, and keeps unsupported or unevaluated coverage visible instead of inventing certainty.
 
+> **LAB-001 status:** experimental and under human validation. Passing technical tests does not mean the product or LAB has passed.
 
-Surface_Recon es un orquestador experimental de reconocimiento para evaluaciones de seguridad autorizadas. Caracteriza objetivos heterogéneos, determina las capacidades de reconocimiento necesarias, reutiliza capacidades compatibles disponibles en el entorno, correlaciona evidencia y mantiene visibles las coberturas no soportadas o no evaluadas.
+## Safety and authorization
 
-> **Estado LAB-001:** experimental y en validación humana. Superar pruebas técnicas no significa que el producto o el LAB estén aprobados.
+Use Surface_Recon only on systems, applications, networks, repositories, files, or other assets you own or are explicitly authorized to assess. Technical capability is not authorization. Surface_Recon is designed for non-destructive reconnaissance and does not make exploitation or destructive action implicit.
 
-## Seguridad y autorización
+## Requirements
 
-Usa Surface_Recon únicamente sobre sistemas, aplicaciones, redes, repositorios, archivos u otros activos propios o para los que tengas autorización explícita. La capacidad técnica no equivale a autorización. El reconocimiento está diseñado para ser no destructivo y no implica explotación automática.
+- Python 3.13 or newer.
+- Git for source-based installation.
+- Optional external security tools may extend coverage when Surface_Recon can identify and use them through a verified adapter. Missing tools remain visible as coverage limitations; Surface_Recon does not silently install scanners.
 
-## Requisitos
-
-- Python 3.13 o superior.
-- Git para instalar desde el código fuente.
-- Herramientas externas de seguridad son opcionales y pueden ampliar cobertura cuando Surface_Recon dispone de una integración verificada. Las ausencias se reportan como limitaciones; no se instalan scanners silenciosamente.
-
-## Instalación desde código fuente
-
-### Windows
-
-Primero verifica Python. En Windows, `python` es el comando principal; `py` es un launcher opcional y **no es requisito**:
-
-```powershell
-python --version
-```
-
-Si `python` no existe, prueba `python3 --version`. Si ninguno reporta Python 3.13 o superior, instala una versión compatible desde la distribución oficial de Python, vuelve a abrir PowerShell y verifica de nuevo.
-
-```powershell
-git clone https://github.com/Luguisaca/surface_recon.git
-cd surface_recon
-python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
-python -m pip install .
-python -m surface_recon --help
-```
-
-Si PowerShell bloquea `Activate.ps1`, no necesitas debilitar la Execution Policy del equipo para usar Surface_Recon. La activación es opcional:
-
-```powershell
-.\\.venv\\Scripts\\python.exe -m pip install .
-.\\.venv\\Scripts\\python.exe -m surface_recon --help
-```
-
-Las dependencias se declaran en `pyproject.toml` y pip las instala automáticamente; no se requiere un `requirements.txt` separado.
-
-### Linux / sistemas tipo Unix
+## Install from source
 
 ```bash
 git clone https://github.com/Luguisaca/surface_recon.git
@@ -57,45 +24,65 @@ source .venv/bin/activate
 python -m pip install .
 ```
 
-## Primer uso
+Windows activation uses `.venv\\Scripts\\activate` instead.
 
-Para un usuario, el flujo normal es **reconocimiento + reporte visual**. Ejecuta un objetivo autorizado:
+## First run
 
-```bash
-python -m surface_recon recon https://example.com
-```
-
-Surface_Recon mostrará progreso, guardará el informe visual en `reports/surface-recon-latest.html` y lo abrirá en el navegador por defecto.
-
-### Salida técnica / automatización
-
-`assess` es una vista técnica en texto para automatización, depuración e integración. **No genera el reporte visual**:
+Assess a target you are authorized to test. The explicit `--authorized` attestation is required before active CLI reconnaissance:
 
 ```bash
-python -m surface_recon assess https://example.com
+surface-recon assess --authorized https://example.com
 ```
 
-Iniciar la interfaz local interactiva:
+Run reconnaissance and generate the current evidence/report flow:
 
 ```bash
-python -m surface_recon serve
+surface-recon recon --authorized https://example.com
 ```
 
-La UI escucha en loopback (`127.0.0.1`) por defecto y exige autorización explícita antes de cada evaluación. `python -m surface_recon` es la invocación portable cuando el script `surface-recon` no está en `PATH`.
+Use `surface-recon --help`, `surface-recon assess --help`, or `surface-recon recon --help` for the current CLI contract.
 
-## Qué esperar
+## Control de reconocimiento
 
-Surface_Recon puede combinar reconocimiento propio acotado con proveedores compatibles ya instalados. Reporta capacidades ejecutadas, observaciones, evidencia, cobertura y gaps explícitos. Que una herramienta exista no autoriza su uso ni demuestra cobertura completa.
+El modo normal sigue siendo autónomo. `--mode auto` selecciona capacidades por evidencia y cobertura. También puedes usar `passive` (solo evidencia local), `active` (core acotado sin providers externos), `balanced` o `deep`. `--intensity low` reduce ruido y desactiva providers; `--include-provider` y `--exclude-provider` son overrides avanzados sobre adapters verificados, no una obligación de elegir herramientas manualmente.
 
-## Validación de desarrollo
+`recon` genera un informe humano y exports JSON/CSV reutilizables. Para profundizar una corrida sin copiar hosts manualmente, usa `--continue-from <export.json> --authorized`; la continuación conserva únicamente el alcance originalmente autorizado y no promueve referencias descubiertas a nuevo scope.
+
+La interfaz `serve` ofrece los mismos perfiles básicos y presenta tablas humanas; el JSON queda como evidencia secundaria. Una ruta/hipótesis descartada por 404/410 no se presenta como superficie activa.
+
+## What to expect
+
+Surface_Recon may combine its owned bounded reconnaissance with compatible providers already installed on the host. It reports executed capabilities, observations, evidence, coverage, and explicit gaps. Availability of a tool does not by itself authorize its use or prove complete coverage.
+
+## Development validation
 
 ```bash
 python -m pip install -e . pytest
 python -m pytest -q
 ```
 
-Las pruebas automáticas cubren los comportamientos representados en el repositorio público. También se exige evidencia controlada y HUMAN QA antes de declarar completo el LAB.
+The current LAB checkpoint is validated by automated tests plus controlled evidence under `benchmarks/` and `specs/`. Human QA remains required before declaring the LAB complete.
 
-## Licencia
+## License
 
-Surface_Recon usa PolyForm Noncommercial License 1.0.0. Consulta `LICENSE` y `NOTICE`.
+Surface_Recon is licensed under the PolyForm Noncommercial License 1.0.0. See `LICENSE` and `NOTICE`.
+
+### Autocompletado de CLI
+
+Surface_Recon instala soporte de completion mediante `argcomplete`. Se activa una vez por shell:
+
+```bash
+# Bash / Kali / Parrot
+eval "$(register-python-argcomplete surface-recon)"
+```
+
+```powershell
+# PowerShell / Windows (sesi?n actual)
+register-python-argcomplete --shell powershell surface-recon | Out-String | Invoke-Expression
+```
+
+Despu?s, `surface-recon recon --<TAB>` completa las opciones disponibles. La activaci?n persistente depende del perfil/configuraci?n del shell y no se modifica autom?ticamente.
+
+### Ritmo y providers
+
+`--mode passive` es la opci?n de **cero red**: para objetivos de red falla cerrado en vez de resolver DNS o enviar probes. `--intensity low --pace-ms N` reduce el ritmo del core y desactiva providers externos, pero **no garantiza invisibilidad ni evasi?n de detecci?n**. `--provider-timeout SEGUNDOS` permite ampliar o reducir el tiempo m?ximo de un provider sin eliminar los l?mites existentes.

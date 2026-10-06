@@ -100,11 +100,36 @@ def _is_first_party_path(path: Path, root: Path) -> bool:
         return False
     return not any(part.lower() in _NON_FIRST_PART_DIRS for part in relative.parts[:-1])
 
+def _inventory_tree(path):
+    import os
+    all_files = []
+    subdirectories = []
+    skipped_directories = []
+    errors = []
+    for directory, dirs, names in os.walk(path, followlinks=False, onerror=lambda exc: errors.append(type(exc).__name__)):
+        from .controls import checkpoint
+        checkpoint()
+        root = Path(directory)
+        for name in list(dirs):
+            child = root / name
+            if child.is_symlink() or child.is_junction():
+                dirs.remove(name)
+                skipped_directories.append(str(child.relative_to(path)))
+            elif name.lower() in _NON_FIRST_PART_DIRS:
+                # Enumerate metadata to preserve the excluded-file count; never
+                # read these files for first-party analysis.
+                skipped_directories.append(str(child.relative_to(path)))
+            elif _is_first_party_path(child / "placeholder", path):
+                subdirectories.append(str(child.relative_to(path)))
+        all_files.extend(root / name for name in names if (root / name).is_file() and not (root / name).is_symlink())
+    return all_files, subdirectories, skipped_directories, errors
+
+
 def recon_path(target: Target):
     path = Path(target.value)
     if path.is_file(): return recon_artifact(target)
     if not path.is_dir(): return [], ()
-    all_files = [p for p in path.rglob("*") if p.is_file() and ".git" not in p.parts]
+    all_files, subdirectories, skipped_directories, errors = _inventory_tree(path)
     files = [p for p in all_files if _is_first_party_path(p, path)]
     excluded_files = len(all_files) - len(files)
     names = {"package.json","package-lock.json","pyproject.toml","requirements.txt",
@@ -117,13 +142,19 @@ def recon_path(target: Target):
         suffixes[suffix] = suffixes.get(suffix, 0) + 1
     observations = [_obs(f"Local inventory: {len(files)} file(s), {len(manifests)} manifest(s)",
         {"kind":"inventory","file_count":len(files),
+         "recursive": True, "visited_subdirectories": subdirectories,
+         "skipped_subdirectories": skipped_directories, "read_errors": errors,
+         "frontier_exhausted": not errors,
+         "zero_files_reason": ("No se leyeron archivos propios; revisa los subdirectorios omitidos y errores de lectura." if errors or skipped_directories else "El árbol recorrido no contiene archivos propios regulares.") if not files else None,
          "manifests":[str(p.relative_to(path)) for p in manifests[:50]],
          "top_extensions":sorted(suffixes.items(), key=lambda x:x[1], reverse=True)[:15],
          "excluded_non_first_party_files":excluded_files,
          "source_boundary_policy":"generated/dependency/environment trees excluded from first-party inventory"})]
-    return observations, ("inventory",)
+    return observations, ("inventory-partial",) if errors else ("inventory",)
 
 def recon_host(target: Target):
+    from .controls import checkpoint
+    checkpoint()
     try:
         addresses = sorted({item[4][0] for item in socket.getaddrinfo(target.value, None)})
     except socket.gaierror:
@@ -136,6 +167,7 @@ def recon_host(target: Target):
         8080:"http-alt",8443:"https-alt"}
     reachable = []
     for port, service in common.items():
+        checkpoint(pace=True)
         try:
             with socket.create_connection((target.value, port), timeout=0.2):
                 reachable.append({"port":port,"service_hint":service})
@@ -147,6 +179,7 @@ def recon_host(target: Target):
     return observations, ("host-discovery","port-discovery-partial")
 
 def recon_network(target: Target):
+    from .controls import checkpoint
     network = ipaddress.ip_network(target.value, strict=False)
     observations = [_obs("Network scope characterized",
         {"kind":"network","network":str(network),"version":network.version,
@@ -159,6 +192,7 @@ def recon_network(target: Target):
     live = []
     ports = (80,443,22,445)
     for address in network.hosts():
+        checkpoint(pace=True)
         for port in ports:
             try:
                 with socket.create_connection((str(address), port), timeout=0.08):
@@ -207,7 +241,8 @@ def static_source_review(target: Target):
     if not path.is_dir():
         return [], ()
     source_suffixes = {".py",".js",".ts",".tsx",".jsx",".java",".go",".rs",".php",".rb",".cs",".ps1"}
-    files = [p for p in path.rglob("*") if p.is_file() and _is_first_party_path(p, path)
+    inventory_files, _, _, inventory_errors = _inventory_tree(path)
+    files = [p for p in inventory_files if _is_first_party_path(p, path)
              and p.suffix.lower() in source_suffixes and p.stat().st_size <= 1_000_000][:500]
     rules = [
         ("dynamic-eval", "eval(", "Dynamic code evaluation"),
