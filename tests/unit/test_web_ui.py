@@ -39,7 +39,7 @@ def test_web_ui_exposes_recon_controls_and_human_wording():
     assert 'Perfil' in _HTML
     assert 'Pasivo' in _HTML
     assert 'Solo proveedores' in _HTML
-    assert 'Qué falta comprobar' in _HTML
+    assert 'Alcance y límites' in _HTML
     assert 'Gaps / siguientes fases' not in _HTML
 
 
@@ -49,7 +49,7 @@ def test_human_qa_validation_errors_are_distinct_and_accessible():
     assert 'Falta la autorización:' in _HTML
     assert 'role="status" aria-live="polite"' in _HTML
     assert 'id="profile-help"' in _HTML
-    assert 'Cómo continuar' in _HTML
+    assert 'Siguientes pasos recomendados' in _HTML
     assert 'no lo demuestra' in _HTML
 
 
