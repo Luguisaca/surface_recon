@@ -53,12 +53,20 @@ def inspect_authorized(target: str, *, authorized: bool, use_extensions: bool = 
 
 def _handler(use_extensions: bool):
     class Handler(BaseHTTPRequestHandler):
+        def _local_request(self):
+            host = self.headers.get("Host", "").split(":")[0].lower()
+            origin = self.headers.get("Origin")
+            return host in {"127.0.0.1", "localhost"} and (not origin or origin.rstrip("/") in {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"})
         def do_GET(self):
+            if not self._local_request():
+                self.send_error(403); return
             if self.path not in {"/", "/index.html"}:
                 self.send_error(404); return
             raw = _HTML.encode("utf-8")
             self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Content-Length",str(len(raw))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(raw)
         def do_POST(self):
+            if not self._local_request():
+                self.send_error(403); return
             if self.path != "/api/assess":
                 self.send_error(404); return
             try:
