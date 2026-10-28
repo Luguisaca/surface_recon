@@ -9,7 +9,7 @@ import webbrowser
 from .assessment import assess_targets
 from .controls import ReconControls
 from .redaction import minimize
-from .reporting import export_payload, human_error, report_body
+from .reporting import csv_export, export_payload, human_error, report_body
 from .results import _jsonable, _surface_data
 
 _HTML = r"""<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Surface_Recon</title>
@@ -20,14 +20,19 @@ _HTML = r"""<!doctype html><html lang="es"><head><meta charset="utf-8"><meta nam
 <label>Ruido <select id="noise"><option value="normal">Normal</option><option value="low">Bajo</option></select></label>
 <label>Solo proveedores <input id="include" type="text" placeholder="nmap,nuclei…"></label><label>Excluir <input id="exclude" type="text" placeholder="nmap,nuclei…"></label></div>
 <label><input id="authorized" type="checkbox"> Confirmo que estoy autorizado a evaluar este objetivo.</label>
-<p class="muted">Auto decide por cobertura. Los providers son overrides avanzados; detectado no significa ejecutado. 0 hallazgos no significa seguro.</p><p id="status"></p></section>
-<section id="result" hidden><article class="warn"><h2>Qué falta comprobar</h2><p>La cobertura no evaluada y las limitaciones aparecen dentro del informe. No se convierten en ausencia de riesgo.</p></article><div id="human"></div></section>
+<p id="profile-help" class="muted">Auto elige capacidades según el objetivo. Pasivo solo revisa evidencia local; no hace ingeniería inversa ni pruebas de red. Para ampliar cobertura, selecciona otro perfil y revisa los permisos y herramientas disponibles.</p><details><summary>Opciones avanzadas: herramientas y proveedores</summary><p>Los campos Solo proveedores y Excluir son filtros opcionales, no instalan herramientas. La tabla del informe distingue detectado, seleccionado y ejecutado.</p></details><p class="muted">Auto decide por cobertura. Los providers son overrides avanzados; detectado no significa ejecutado. 0 hallazgos no significa seguro.</p><p id="status" role="status" aria-live="polite"></p></section>
+<section id="result" hidden><article class="warn"><h2>Qué falta comprobar</h2><p>La cobertura no evaluada y las limitaciones aparecen dentro del informe. No se convierten en ausencia de riesgo.</p></article><article><h2>Cómo continuar</h2><ol><li>Revisa la cobertura no evaluada: no equivale a ausencia de riesgos.</li><li>Si elegiste Pasivo, prueba Auto solo cuando tengas autorización para ampliar el reconocimiento.</li><li>Consulta la tabla de proveedores: detectado no significa ejecutado; instalar herramientas es una decisión separada.</li><li>Para ingeniería inversa de software se necesita un análisis específico: este reconocimiento de archivos no lo demuestra.</li></ol><p>Conserva el informe y las evidencias para planificar una evaluación posterior dentro del alcance autorizado.</p></article><div id="human"></div><nav id="exports" class="row" aria-label="Descargar evidencias" hidden><button id="save-html" type="button">Descargar informe HTML</button><button id="save-json" type="button">Exportar JSON</button><button id="save-csv" type="button">Exportar CSV</button></nav></section>
 <script>
 const $=x=>document.getElementById(x), list=x=>$(x).value.split(',').map(v=>v.trim()).filter(Boolean);
-$('run').onclick=async()=>{const target=$('target').value.trim();$('result').hidden=true;if(!target||!$('authorized').checked){$('status').textContent='Ingresa un objetivo y confirma autorización.';return}
+let lastReport=null;
+function downloadReport(content,type,extension){if(!lastReport)return;const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='surface-recon-'+lastReport.run_id+'.'+extension;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+$('save-html').onclick=()=>downloadReport('<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Surface_Recon</title></head><body>'+lastReport.html+'</body></html>','text/html;charset=utf-8','html');
+$('save-json').onclick=()=>downloadReport(JSON.stringify(lastReport.export,null,2),'application/json;charset=utf-8','json');
+$('save-csv').onclick=()=>downloadReport(lastReport.csv,'text/csv;charset=utf-8','csv');
+$('run').onclick=async()=>{const target=$('target').value.trim();$('result').hidden=true;$('exports').hidden=true;lastReport=null;if(!target){$('status').textContent='Falta el objetivo: escribe una ruta local, URL o host autorizado.';$('target').focus();return}if(!$('authorized').checked){$('status').textContent='Falta la autorización: marca la casilla de confirmación antes de reconocer.';$('authorized').focus();return}
 $('run').disabled=true;$('status').textContent='Reconociendo…';try{const body={target,authorized:true,profile:$('profile').value,noise:$('noise').value,include:list('include'),exclude:list('exclude')};
 const r=await fetch('/api/assess',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Falló la evaluación');
-$('human').innerHTML=d.html;$('result').hidden=false;$('status').textContent='Reconocimiento completado. Revisa cobertura, evidencia y siguientes pasos.'}catch(e){$('status').textContent=e.message}finally{$('run').disabled=false}};
+$('human').innerHTML=d.html;lastReport=d;$('exports').hidden=false;$('result').hidden=false;$('status').textContent='Reconocimiento completado. Revisa cobertura, evidencia y siguientes pasos.'}catch(e){$('status').textContent=e.message}finally{$('run').disabled=false}};
 </script></main></body></html>"""
 
 def inspect_authorized(target: str, *, authorized: bool, use_extensions: bool = True,
@@ -42,7 +47,7 @@ def inspect_authorized(target: str, *, authorized: bool, use_extensions: bool = 
     supported = sum(1 for finding in assessment.findings if getattr(finding.status, "value", finding.status) == "supported")
     payload = export_payload(assessment)
     return {"status": assessment.status.value, "supported_findings": supported, "rows": rows,
-            "html": report_body(payload)}
+            "html": report_body(payload), "export": payload, "csv": csv_export(payload), "run_id": payload["run_id"]}
 
 def _handler(use_extensions: bool):
     class Handler(BaseHTTPRequestHandler):
