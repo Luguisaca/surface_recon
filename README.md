@@ -2,7 +2,7 @@
 
 Surface_Recon is an experimental reconnaissance orchestrator for authorized security assessment. It characterizes heterogeneous targets, maps required reconnaissance capabilities, reuses compatible capabilities already available in the environment, correlates evidence, and keeps unsupported or unevaluated coverage visible instead of inventing certainty.
 
-> **LAB-001 status:** experimental and under human validation. Passing technical tests does not mean the product or LAB has passed.
+> **Release status:** experimental. Automated checks do not establish comprehensive coverage, security certification or support for every target.
 
 ## Safety and authorization
 
@@ -61,7 +61,7 @@ python -m pip install -e . pytest
 python -m pytest -q
 ```
 
-The current LAB checkpoint is validated by automated tests plus controlled evidence under `benchmarks/` and `specs/`. Human QA remains required before declaring the LAB complete.
+Technical checks and controlled evidence are maintained under `tests/`, `benchmarks/` and `specs/`. Validate capabilities against your own authorized scope; do not infer exhaustive discovery or reverse engineering from a completed run.
 
 ## License
 
