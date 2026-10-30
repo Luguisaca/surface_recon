@@ -43,7 +43,11 @@ class ReconControls:
 
     @property
     def web_budget(self):
-        return (10, 60.0) if self.noise == "low" else ((None, 300.0) if self.profile == "deep" else (30, 120.0))
+        if self.noise == "low":
+            return (60, 120.0)
+        if self.profile == "deep":
+            return (1000, 600.0)
+        return (300, 300.0)
 
 
 current_controls = ContextVar("recon_controls", default=ReconControls())
@@ -58,9 +62,9 @@ def checkpoint(*, pace=False):
     event = current_cancel.get()
     if event is not None and event.is_set():
         raise ReconCancelled("Reconocimiento cancelado por el usuario.")
-    if pace and current_controls.get().noise == "low":
+    if pace:
         if event is not None:
-            if event.wait(current_controls.get().pace_ms / 1000):
+            if event.wait((max(current_controls.get().pace_ms, 250) if current_controls.get().noise == "low" else current_controls.get().pace_ms) / 1000):
                 raise ReconCancelled("Reconocimiento cancelado por el usuario.")
         else:
-            time.sleep(current_controls.get().pace_ms / 1000)
+            time.sleep((max(current_controls.get().pace_ms, 250) if current_controls.get().noise == "low" else current_controls.get().pace_ms) / 1000)
