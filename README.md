@@ -50,6 +50,12 @@ El modo normal sigue siendo autónomo. `--mode auto` selecciona capacidades por 
 
 La interfaz `serve` ofrece los mismos perfiles básicos y presenta tablas humanas; el JSON queda como evidencia secundaria. Una ruta/hipótesis descartada por 404/410 no se presenta como superficie activa.
 
+## Presupuestos y límites HTTP vigentes
+
+Para objetivos URL: `auto` y `balanced` permiten hasta **300 solicitudes / 300 s**; `deep`, **1.000 / 600 s**; `--intensity low`, **60 / 120 s**, con ritmo reducido y sin proveedores externos. El modo `--mode unlimited` o su opción web **elimina solo el límite de cantidad de solicitudes**: conserva plazo de **3.600 s**, autorización, origen permitido, pausas y cancelación. Con `unlimited` + intensidad baja se mantiene la cantidad sin tope y el ritmo conservador.
+
+El motor puede finalizar antes si agota las rutas observadas. Ante HTTP 429/503 respeta `Retry-After` en los casos probados y detiene ante saturación prolongada; no sigue redirecciones fuera del origen. **No** garantiza descubrir rutas que no estén referenciadas, ni ajusta automáticamente el techo máximo al tamaño del sitio. Pruebas de Edge y exportaciones reales documentadas en `tests/browser/QA-2026-10-30.md`; QA humano favorable de cinco flujos (2026-10-30), **sin aprobación de publicación**.
+
 ## What to expect
 
 Surface_Recon may combine its owned bounded reconnaissance with compatible providers already installed on the host. It reports executed capabilities, observations, evidence, coverage, and explicit gaps. Availability of a tool does not by itself authorize its use or prove complete coverage.

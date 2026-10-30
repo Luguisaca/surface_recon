@@ -4,7 +4,7 @@
 
 Surface_Recon is an experimental reconnaissance orchestrator for authorized security assessment. It characterizes heterogeneous targets, maps required reconnaissance capabilities, reuses compatible capabilities already available in the environment, correlates evidence, and keeps unsupported or unevaluated coverage visible instead of inventing certainty.
 
-> **LAB-001 status:** experimental and under human validation. Passing technical tests does not mean the product or LAB has passed.
+> **Release status:** experimental and under controlled human validation. Automated checks do not certify complete target coverage, security or platform compatibility.
 
 ## Safety and authorization
 
@@ -65,13 +65,13 @@ python -m pip install .
 Assess a target you are authorized to test:
 
 ```bash
-surface-recon assess https://example.com
+surface-recon assess --authorized https://example.com
 ```
 
 Run reconnaissance and generate the current evidence/report flow:
 
 ```bash
-surface-recon recon https://example.com
+surface-recon recon --authorized https://example.com
 ```
 
 Start the local interactive interface:
@@ -84,6 +84,12 @@ The UI binds to loopback (`127.0.0.1`) by default and requires explicit authoriz
 
 Use `surface-recon --help`, `surface-recon assess --help`, `surface-recon recon --help`, or `python -m surface_recon serve --help` for the current CLI contract.
 
+## HTTP reconnaissance controls
+
+The CLI and local UI offer `auto`, `passive`, `active`, `balanced`, `deep`, and `unlimited` modes. On URL targets, `auto` and `balanced` allow up to 300 core requests / 300 s, `deep` allows up to 1,000 / 600 s, and `--intensity low` allows 60 / 120 s with additional pacing and external providers disabled. **`unlimited` removes the request-count cap only**, retaining a 3,600 s deadline, same-origin scope, request pacing, and cancellation. The low-noise setting does not override its uncapped request count.
+
+The core may finish earlier when its discovered frontier is exhausted. A 429 or 503 response triggers bounded retry behavior and respects supported `Retry-After` values; long or repeated throttling stops the scan with partial coverage. Redirects to another origin are **not followed**. This does not imply adaptive scaling of the maximum budget by site size or comprehensive enumeration of unlinked paths.
+
 ## What to expect
 
 Surface_Recon may combine its owned bounded reconnaissance with compatible providers already installed on the host. It reports executed capabilities, observations, evidence, coverage, and explicit gaps. Availability of a tool does not by itself authorize its use or prove complete coverage.
@@ -95,7 +101,7 @@ python -m pip install -e . pytest
 python -m pytest -q
 ```
 
-Automated tests cover the behaviors represented in this public repository. Controlled validation evidence and HUMAN QA are also required before declaring the LAB complete; technical gates alone are not a product PASS.
+Automated tests cover specific reproducible scenarios in this repository. See `tests/browser/QA-2026-10-30.md` for browser testing limitations. Human QA of the five tested flows was accepted on 2026-10-30; this is not approval to merge or publish.
 
 ## License
 

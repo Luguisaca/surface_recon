@@ -16,7 +16,7 @@ import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from .model import Target
 from .interpretation import interpret_http_response
@@ -81,12 +81,27 @@ def _safe_same_origin(base: str, value: str) -> str | None:
     return urlunparse((p.scheme, p.netloc, p.path or "/", p.params, p.query, ""))
 
 
+class _ScopedRedirectHandler(HTTPRedirectHandler):
+    """Allow HTTP redirects only within the origin of the requested URL."""
+
+    def __init__(self, initial_url: str):
+        self.initial_origin = _origin(initial_url)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if _origin(newurl) != self.initial_origin:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _fetch(url: str, timeout: float = 4.0, max_bytes: int = 2_000_000) -> tuple[int, dict[str, str], bytes, str]:
     from .controls import checkpoint
     checkpoint(pace=True)
     req = Request(url, headers={"User-Agent": "Surface_Recon/0.2 (+authorized-recon)"})
+    # urllib normally follows cross-origin Location headers. Prevent any
+    # out-of-scope HTTP request, including on the initial entrypoint.
+    opener = build_opener(_ScopedRedirectHandler(url))
     try:
-        with urlopen(req, timeout=timeout) as response:
+        with opener.open(req, timeout=timeout) as response:
             return response.status, dict(response.headers.items()), response.read(max_bytes), response.geturl()
     except HTTPError as exc:
         return exc.code, dict(exc.headers.items()), exc.read(max_bytes), exc.geturl()
@@ -256,6 +271,26 @@ def recon_url(
 
         emit(f"web: probing entrypoint {base}")
         status, headers, body, final_url = _fetch(base)
+        if status in {429, 503} or 300 <= status < 400:
+            kind = "throttle" if status in {429, 503} else "redirect-unfollowed"
+            observations.append({
+                "description": f"Core entrypoint HTTP {status}: no further requests",
+                "evidence": {"kind": kind, "url": base, "status": status,
+                    "retry_after_seconds": _retry_delay(status, headers) if kind == "throttle" else None,
+                    "location": headers.get("Location") if kind != "throttle" else None},
+                "finding": False, "source": "surface-recon-core",
+            })
+            covered.add("content-discovery-partial")
+            observations.append({
+                "description": "Core stopped before site discovery due to server response",
+                "evidence": {"kind": "decision", "requests": 1, "budget": max_requests,
+                    "time_budget_seconds": max_seconds,
+                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                    "stop_reason": "server-rate-limit" if kind == "throttle" else "redirect-unfollowed",
+                    "remaining_candidates": 0},
+                "finding": False, "source": "surface-recon-core",
+            })
+            return CoreExecution(True, observations, tuple(sorted(covered)), discovered)
         ctype = headers.get("Content-Type", "")
         text = body.decode("utf-8", errors="replace")
         signals = _technology_signals(headers, text)
@@ -281,7 +316,24 @@ def recon_url(
             try:
                 nf_status, nf_headers, nf_body, _ = _fetch(canary)
                 requests += 1
-                soft_not_found = _response_fingerprint(nf_status, nf_headers, nf_body)
+                if nf_status in {429, 503}:
+                    observations.append({
+                        "description": f"Core canary HTTP {nf_status}: stop to respect server limit",
+                        "evidence": {"kind": "throttle", "url": canary, "status": nf_status,
+                                     "retry_after_seconds": _retry_delay(nf_status, nf_headers)},
+                        "finding": False, "source": "surface-recon-core",
+                    })
+                    covered.add("content-discovery-partial")
+                    observations.append({
+                        "description": "Core stopped at canary due to server rate limit",
+                        "evidence": {"kind": "decision", "requests": requests, "budget": max_requests,
+                            "time_budget_seconds": max_seconds,
+                            "elapsed_seconds": round(time.monotonic() - started, 3),
+                            "stop_reason": "server-rate-limit", "remaining_candidates": 0},
+                        "finding": False, "source": "surface-recon-core",
+                    })
+                    return CoreExecution(True, observations, tuple(sorted(covered)), discovered)
+                soft_not_found = _response_fingerprint(nf_status, nf_headers, nf_body) if nf_status not in range(300,400) else None
                 observations.append({
                     "description": "Core control: learned missing-route response fingerprint",
                     "evidence": {"kind": "control", "purpose": "soft-not-found-baseline",
@@ -335,6 +387,14 @@ def recon_url(
                 child_status, child_headers, child_body, child_final = _fetch(item.url)
                 requests += 1
             except (URLError, OSError, TimeoutError):
+                continue
+            if 300 <= child_status < 400:
+                observations.append({
+                    "description": f"Core did not follow redirect from {item.url}",
+                    "evidence": {"kind": "redirect-unfollowed", "url": item.url,
+                                 "status": child_status, "location": child_headers.get("Location")},
+                    "finding": False, "source": "surface-recon-core",
+                })
                 continue
             if child_status in {404, 410} or (soft_not_found and _response_fingerprint(child_status, child_headers, child_body) == soft_not_found):
                 observations.append({
