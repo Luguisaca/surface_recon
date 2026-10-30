@@ -43,10 +43,10 @@ class ReconControls:
 
     @property
     def web_budget(self):
-        if self.noise == "low":
-            return (60, 120.0)
         if self.profile == "unlimited":
             return (None, 3600.0)
+        if self.noise == "low":
+            return (60, 120.0)
         if self.profile == "deep":
             return (1000, 600.0)
         return (300, 300.0)

@@ -25,3 +25,9 @@ def test_http_retry_after_policy():
     assert _retry_delay(503, {"retry-after": "90"}) == 90.0
     assert _retry_delay(429, {}) == 5.0
     assert _retry_delay(200, {"Retry-After": "10"}) == 0.0
+
+
+def test_unlimited_low_noise_retains_unlimited_count_and_low_noise_pacing():
+    controls = ReconControls(profile="unlimited", noise="low")
+    assert controls.web_budget == (None, 3600.0)
+    assert not controls.extensions
