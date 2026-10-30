@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html.parser import HTMLParser
 import hashlib
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timezone
 import re
 import socket
 import time
@@ -88,6 +90,21 @@ def _fetch(url: str, timeout: float = 4.0, max_bytes: int = 2_000_000) -> tuple[
             return response.status, dict(response.headers.items()), response.read(max_bytes), response.geturl()
     except HTTPError as exc:
         return exc.code, dict(exc.headers.items()), exc.read(max_bytes), exc.geturl()
+
+
+def _retry_delay(status: int, headers: dict[str, str]) -> float:
+    if status not in {429, 503}:
+        return 0.0
+    value = next((v for k, v in headers.items() if k.lower() == "retry-after"), None)
+    if value:
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            try:
+                return max(0.0, (parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds())
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return 5.0
 
 
 def _response_fingerprint(status: int, headers: dict[str, str], body: bytes) -> tuple[int, str, str]:
@@ -274,6 +291,7 @@ def recon_url(
             except (URLError, OSError, TimeoutError):
                 pass
 
+        throttle_attempts: dict[str, int] = {}
         queue: list[Candidate] = []
         known = {final_url}
         if "html" in ctype.lower() or "<html" in text[:4096].lower():
@@ -326,6 +344,27 @@ def recon_url(
                     "finding": False, "source": "surface-recon-core",
                 })
                 continue
+            delay = _retry_delay(child_status, child_headers)
+            if delay:
+                observations.append({"description": f"Core throttle: HTTP {child_status}; pause requested {delay:.1f}s",
+                    "evidence": {"kind": "throttle", "url": child_final, "status": child_status,
+                                 "retry_after_seconds": delay, "action": "stop-if-unreasonable-or-wait"},
+                    "finding": False, "source": "surface-recon-core"})
+                remaining = None if max_seconds is None else max_seconds - (time.monotonic() - started)
+                throttle_attempts[item.url] = throttle_attempts.get(item.url, 0) + 1
+                if throttle_attempts[item.url] > 2 or delay > 60 or (remaining is not None and delay >= remaining):
+                    queue.insert(0, item)
+                    break
+                from .controls import current_cancel
+                cancel = current_cancel.get()
+                if cancel is not None:
+                    if cancel.wait(delay):
+                        from .controls import ReconCancelled
+                        raise ReconCancelled("Reconocimiento cancelado por el usuario.")
+                else:
+                    time.sleep(delay)
+                queue.insert(0, item)
+                continue
             discovered.append(child_final)
             child_type = child_headers.get("Content-Type", "")
             actual_kind = _classify(child_final, child_type, item.kind)
@@ -374,6 +413,8 @@ def recon_url(
         covered.add("input-surface-analysis")
         if not queue:
             stop_reason = "frontier-exhausted"
+        elif any(x.get("evidence", {}).get("kind") == "throttle" for x in observations) and delay > 60:
+            stop_reason = "server-rate-limit"
         elif max_seconds is not None and time.monotonic() - started >= max_seconds:
             stop_reason = "time-budget-exhausted"
         else:

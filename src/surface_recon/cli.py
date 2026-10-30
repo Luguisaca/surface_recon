@@ -64,12 +64,12 @@ def main() -> int:
         item.add_argument("-h", "--help", action="help", help="Mostrar esta ayuda y salir.")
 
     for command in (recon, assess):
-        command.add_argument("--mode", "--profile", choices=["auto", "passive", "active", "balanced", "deep"], default="auto", help="passive: solo local; active: core de red acotado; auto/balanced: selección por cobertura; deep: amplía presupuesto web.")
-        command.add_argument("--intensity", choices=["low", "normal"], default="normal", help="low: 10 solicitudes web/60s, pausa y sin providers; normal: 30/120s; deep normal: sin tope de solicitudes/300s. Los adapters conservan sus límites.")
+        command.add_argument("--mode", "--profile", choices=["auto", "passive", "active", "balanced", "deep", "unlimited"], default="auto", help="passive: solo local; active: core de red acotado; auto/balanced: selección por cobertura; deep: amplía presupuesto web.")
+        command.add_argument("--intensity", choices=["low", "normal"], default="normal", help="low: 60 solicitudes/120s; normal: 300/300s; deep: 1000/600s; unlimited: sin tope de solicitudes, máximo 3600s. Los adapters conservan sus límites.")
         command.add_argument("--include-provider", action="append", default=[], help="Filtro avanzado del catálogo verificado; no fuerza ejecución sin evidencia pertinente.")
         command.add_argument("--exclude-provider", action="append", default=[], help="Excluir provider de la selección automática.")
         command.add_argument("--provider-timeout", type=int, default=300, metavar="SEGUNDOS", help="Tiempo m\u00e1ximo por ejecuci\u00f3n de provider (30..3600; predeterminado: 300).")
-        command.add_argument("--pace-ms", type=int, default=100, metavar="MS", help="Pausa entre probes del core cuando --intensity low (0..5000 ms). Reduce ritmo; NO garantiza evasi\u00f3n ni invisibilidad.")
+        command.add_argument("--pace-ms", type=int, default=100, metavar="MS", help="Pausa entre solicitudes del core (0..5000 ms). Reduce ritmo; NO garantiza evasi\u00f3n ni invisibilidad.")
     for item in (parser, recon, assess, serve):
         item._positionals.title = "argumentos"
         item._optionals.title = "opciones"

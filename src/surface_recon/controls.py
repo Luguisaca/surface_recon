@@ -15,7 +15,7 @@ class ReconControls:
 
     def validate(self, *, use_extensions=True):
         from .tooling import adapter_catalog, discover_tools
-        if self.profile not in {"auto", "passive", "active", "balanced", "deep"}:
+        if self.profile not in {"auto", "passive", "active", "balanced", "deep", "unlimited"}:
             raise ValueError("Perfil desconocido.")
         if not 0 <= int(self.pace_ms) <= 5000:
             raise ValueError("Pausa fuera de rango: usa 0..5000 ms.")
@@ -45,6 +45,8 @@ class ReconControls:
     def web_budget(self):
         if self.noise == "low":
             return (60, 120.0)
+        if self.profile == "unlimited":
+            return (None, 3600.0)
         if self.profile == "deep":
             return (1000, 600.0)
         return (300, 300.0)
