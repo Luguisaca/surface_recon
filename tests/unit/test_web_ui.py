@@ -67,3 +67,11 @@ def test_web_ui_exposes_downloadable_traceable_exports():
 def test_web_ui_rejects_unknown_provider_before_running():
     with pytest.raises(ValueError, match='adapter verificado'):
         inspect_authorized('opaque://preserved', authorized=True, include=('not-a-provider',))
+
+
+def test_web_ui_exposes_unlimited_profile_with_time_guard():
+    from surface_recon.web import _HTML
+    from surface_recon.controls import ReconControls
+    assert '<option value="unlimited">' in _HTML
+    assert '60 min' in _HTML
+    assert ReconControls(profile="unlimited").web_budget == (None, 3600.0)
