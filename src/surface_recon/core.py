@@ -292,6 +292,7 @@ def recon_url(
                 pass
 
         throttle_attempts: dict[str, int] = {}
+        server_rate_limited = False
         queue: list[Candidate] = []
         known = {final_url}
         if "html" in ctype.lower() or "<html" in text[:4096].lower():
@@ -345,7 +346,7 @@ def recon_url(
                 })
                 continue
             delay = _retry_delay(child_status, child_headers)
-            if delay:
+            if child_status in {429, 503}:
                 observations.append({"description": f"Core throttle: HTTP {child_status}; pause requested {delay:.1f}s",
                     "evidence": {"kind": "throttle", "url": child_final, "status": child_status,
                                  "retry_after_seconds": delay, "action": "stop-if-unreasonable-or-wait"},
@@ -353,6 +354,7 @@ def recon_url(
                 remaining = None if max_seconds is None else max_seconds - (time.monotonic() - started)
                 throttle_attempts[item.url] = throttle_attempts.get(item.url, 0) + 1
                 if throttle_attempts[item.url] > 2 or delay > 60 or (remaining is not None and delay >= remaining):
+                    server_rate_limited = True
                     queue.insert(0, item)
                     break
                 from .controls import current_cancel
@@ -413,7 +415,7 @@ def recon_url(
         covered.add("input-surface-analysis")
         if not queue:
             stop_reason = "frontier-exhausted"
-        elif any(x.get("evidence", {}).get("kind") == "throttle" for x in observations) and delay > 60:
+        elif server_rate_limited:
             stop_reason = "server-rate-limit"
         elif max_seconds is not None and time.monotonic() - started >= max_seconds:
             stop_reason = "time-budget-exhausted"
