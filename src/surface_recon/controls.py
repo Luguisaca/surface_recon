@@ -15,7 +15,7 @@ class ReconControls:
 
     def validate(self, *, use_extensions=True):
         from .tooling import adapter_catalog, discover_tools
-        if self.profile not in {"auto", "passive", "active", "balanced", "deep"}:
+        if self.profile not in {"auto", "passive", "active", "balanced", "deep", "unlimited"}:
             raise ValueError("Perfil desconocido.")
         if not 0 <= int(self.pace_ms) <= 5000:
             raise ValueError("Pausa fuera de rango: usa 0..5000 ms.")
@@ -43,7 +43,19 @@ class ReconControls:
 
     @property
     def web_budget(self):
-        return (10, 60.0) if self.noise == "low" else ((None, 300.0) if self.profile == "deep" else (30, 120.0))
+        if self.profile == "unlimited":
+            return (None, 3600.0)
+        if self.noise == "low":
+            return (60, 120.0)
+        if self.profile == "deep":
+            return (1000, 600.0)
+        return (300, 300.0)
+
+    @property
+    def adaptive_web_ceiling(self):
+        # Only the default auto/normal profile expands on observed useful pages.
+        # Low noise and explicit deep budgets remain bounded as selected.
+        return 1200 if self.profile == "auto" and self.noise == "normal" else None
 
 
 current_controls = ContextVar("recon_controls", default=ReconControls())
@@ -58,9 +70,9 @@ def checkpoint(*, pace=False):
     event = current_cancel.get()
     if event is not None and event.is_set():
         raise ReconCancelled("Reconocimiento cancelado por el usuario.")
-    if pace and current_controls.get().noise == "low":
+    if pace:
         if event is not None:
-            if event.wait(current_controls.get().pace_ms / 1000):
+            if event.wait((max(current_controls.get().pace_ms, 250) if current_controls.get().noise == "low" else current_controls.get().pace_ms) / 1000):
                 raise ReconCancelled("Reconocimiento cancelado por el usuario.")
         else:
-            time.sleep(current_controls.get().pace_ms / 1000)
+            time.sleep((max(current_controls.get().pace_ms, 250) if current_controls.get().noise == "low" else current_controls.get().pace_ms) / 1000)

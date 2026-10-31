@@ -185,7 +185,7 @@ def write_human_report(path, assessment, *, payload=None):
     write_exports(path, assessment, payload=payload)
     html = "<!doctype html><html lang='es'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Surface_Recon · Informe</title><style>" + STYLE + "</style></head><body><main><h1>Surface_Recon</h1>"
     html += f"<p><a download href='{escape(path.with_suffix('.json').name, quote=True)}'>Exportar JSON</a> · <a download href='{escape(path.with_suffix('.csv').name, quote=True)}'>Exportar CSV</a></p>"
-    html += report_body(payload) + "<footer>LAB/Product PENDING. HUMAN QA sigue siendo un gate humano.</footer></main></body></html>"
+    html += report_body(payload) + "<footer>Surface_Recon · Informe experimental. La cobertura observada no demuestra ausencia de riesgo.</footer></main></body></html>"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
     return path

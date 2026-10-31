@@ -2,7 +2,7 @@
 
 Surface_Recon is an experimental reconnaissance orchestrator for authorized security assessment. It characterizes heterogeneous targets, maps required reconnaissance capabilities, reuses compatible capabilities already available in the environment, correlates evidence, and keeps unsupported or unevaluated coverage visible instead of inventing certainty.
 
-> **LAB-001 status:** experimental and under human validation. Passing technical tests does not mean the product or LAB has passed.
+> **Release status:** experimental. Automated checks do not establish comprehensive coverage, security certification or support for every target.
 
 ## Safety and authorization
 
@@ -50,6 +50,12 @@ El modo normal sigue siendo autónomo. `--mode auto` selecciona capacidades por 
 
 La interfaz `serve` ofrece los mismos perfiles básicos y presenta tablas humanas; el JSON queda como evidencia secundaria. Una ruta/hipótesis descartada por 404/410 no se presenta como superficie activa.
 
+## Presupuestos y límites HTTP vigentes
+
+Para objetivos URL: `auto` inicia con **300 solicitudes / 300 s** y, si al menos 25 respuestas útiles justifican más rutas del mismo origen, amplía el presupuesto en bloques de 100 hasta **1.200 solicitudes** sin ampliar los 300 s; `balanced` conserva un máximo fijo de **300 solicitudes / 300 s**; `deep`, **1.000 / 600 s**; `--intensity low`, **60 / 120 s**, con ritmo reducido y sin proveedores externos. El modo `--mode unlimited` o su opción web **elimina solo el límite de cantidad de solicitudes**: conserva plazo de **3.600 s**, autorización, origen permitido, pausas y cancelación. Con `unlimited` + intensidad baja se mantiene la cantidad sin tope y el ritmo conservador.
+
+El motor puede finalizar antes si agota las rutas observadas. Ante HTTP 429/503 respeta `Retry-After` en los casos probados y detiene ante saturación prolongada; no sigue redirecciones fuera del origen. **No** garantiza descubrir rutas que no estén referenciadas, ni garantiza cubrir sitios con más de 1.200 solicitudes en `auto`. La expansión solo se permite con respuestas HTTP 2xx observadas y candidatos pendientes; HTTP 404/429/503 no aportan crecimiento. Selecciona `unlimited` bajo autorización y límites de tiempo si la cobertura requiere más. Pruebas de Edge y exportaciones reales documentadas en `tests/browser/QA-2026-10-30.md`; QA humano favorable de cinco flujos (2026-10-30), **sin aprobación de publicación**.
+
 ## What to expect
 
 Surface_Recon may combine its owned bounded reconnaissance with compatible providers already installed on the host. It reports executed capabilities, observations, evidence, coverage, and explicit gaps. Availability of a tool does not by itself authorize its use or prove complete coverage.
@@ -61,7 +67,7 @@ python -m pip install -e . pytest
 python -m pytest -q
 ```
 
-The current LAB checkpoint is validated by automated tests plus controlled evidence under `benchmarks/` and `specs/`. Human QA remains required before declaring the LAB complete.
+Technical checks and controlled evidence are maintained under `tests/`, `benchmarks/` and `specs/`. Validate capabilities against your own authorized scope; do not infer exhaustive discovery or reverse engineering from a completed run.
 
 ## License
 
