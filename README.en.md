@@ -86,9 +86,9 @@ Use `surface-recon --help`, `surface-recon assess --help`, `surface-recon recon 
 
 ## HTTP reconnaissance controls
 
-The CLI and local UI offer `auto`, `passive`, `active`, `balanced`, `deep`, and `unlimited` modes. On URL targets, `auto` and `balanced` allow up to 300 core requests / 300 s, `deep` allows up to 1,000 / 600 s, and `--intensity low` allows 60 / 120 s with additional pacing and external providers disabled. **`unlimited` removes the request-count cap only**, retaining a 3,600 s deadline, same-origin scope, request pacing, and cancellation. The low-noise setting does not override its uncapped request count.
+The CLI and local UI offer `auto`, `passive`, `active`, `balanced`, `deep`, and `unlimited` modes. On URL targets, `auto` starts at 300 core requests / 300 s and can grow in increments of 100 up to 1,200 requests (without extending the 300 s deadline) after at least 25 healthy same-origin responses justify remaining candidates; `balanced` remains fixed at 300 requests / 300 s, `deep` allows up to 1,000 / 600 s, and `--intensity low` allows 60 / 120 s with additional pacing and external providers disabled. **`unlimited` removes the request-count cap only**, retaining a 3,600 s deadline, same-origin scope, request pacing, and cancellation. The low-noise setting does not override its uncapped request count.
 
-The core may finish earlier when its discovered frontier is exhausted. A 429 or 503 response triggers bounded retry behavior and respects supported `Retry-After` values; long or repeated throttling stops the scan with partial coverage. Redirects to another origin are **not followed**. This does not imply adaptive scaling of the maximum budget by site size or comprehensive enumeration of unlinked paths.
+The core may finish earlier when its discovered frontier is exhausted. A 429 or 503 response triggers bounded retry behavior and respects supported `Retry-After` values; long or repeated throttling stops the scan with partial coverage. Redirects to another origin are **not followed**. Automatic growth is evidence-based and bounded (1,200 requests for `auto`), not comprehensive enumeration of unlinked paths. HTTP 404/429/503 responses do not count as healthy growth signals; `low` remains capped at 60 requests, and `unlimited` still requires authorization and observes its existing deadline.
 
 ## What to expect
 

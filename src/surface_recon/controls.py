@@ -51,6 +51,12 @@ class ReconControls:
             return (1000, 600.0)
         return (300, 300.0)
 
+    @property
+    def adaptive_web_ceiling(self):
+        # Only the default auto/normal profile expands on observed useful pages.
+        # Low noise and explicit deep budgets remain bounded as selected.
+        return 1200 if self.profile == "auto" and self.noise == "normal" else None
+
 
 current_controls = ContextVar("recon_controls", default=ReconControls())
 current_cancel = ContextVar("recon_cancel", default=None)

@@ -47,7 +47,7 @@ def site(size):
 @pytest.mark.parametrize("size,profile,expected_complete", [
     (8, "auto", True),
     (120, "auto", True),
-    (320, "auto", False),
+    (320, "auto", True),
     (320, "unlimited", True),
 ])
 def test_site_scale_http_loopback(size, profile, expected_complete):
@@ -67,4 +67,7 @@ def test_site_scale_http_loopback(size, profile, expected_complete):
         assert len(discovered_pages) == expected, (size, profile, len(discovered_pages), decision)
         assert (decision["stop_reason"] == "frontier-exhausted") == expected_complete
         assert decision["requests"] == sum(counts.values())
+        if size == 320 and profile == "auto":
+            assert decision["budget"] > 300
+            assert decision["budget_extensions"] >= 1
         print(f"SIZE={size} PROFILE={profile} PAGES={len(discovered_pages)}/{size} REQUESTS={decision['requests']} ELAPSED={elapsed:.3f}s STOP={decision['stop_reason']}")

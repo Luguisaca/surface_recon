@@ -244,6 +244,7 @@ def _hypothesis_candidates(base: str, evidence_text: str, signals: list[str]) ->
 def recon_url(
     target: Target, *, max_requests: int | None = 30, max_seconds: float | None = 120.0,
     progress: Callable[[str], None] | None = None,
+    adaptive_ceiling: int | None = None,
 ) -> CoreExecution:
     target.require_authorized()
     base = target.value
@@ -345,6 +346,14 @@ def recon_url(
 
         throttle_attempts: dict[str, int] = {}
         server_rate_limited = False
+        initial_budget = max_requests
+        successful_since_growth = 0
+        budget_extensions = 0
+        # Never weaken explicit request budgets or unbounded profiles. The
+        # adaptive ceiling applies only when recon_target opts into auto mode.
+        ceiling = max(max_requests, adaptive_ceiling) if (
+            adaptive_ceiling is not None and max_requests is not None
+        ) else None
         queue: list[Candidate] = []
         known = {final_url}
         if "html" in ctype.lower() or "<html" in text[:4096].lower():
@@ -373,7 +382,30 @@ def recon_url(
             })
             _add(queue, known, final_url, candidate, f"hypothesis:{hypothesis}", "interesting")
 
-        while queue and (max_requests is None or requests < max_requests) and (max_seconds is None or time.monotonic() - started < max_seconds):
+        while queue and (max_seconds is None or time.monotonic() - started < max_seconds):
+            # Expand an exhausted auto budget only when successful same-origin
+            # responses have justified it. Each increment requires fresh healthy
+            # responses; a site of mostly errors cannot keep expanding the scan.
+            if max_requests is not None and requests >= max_requests:
+                if not (
+                    ceiling is not None
+                    and max_requests < ceiling
+                    and successful_since_growth >= 25
+                    and any(candidate.kind != "asset" for candidate in queue)
+                ):
+                    break
+                previous_budget = max_requests
+                max_requests = min(ceiling, max_requests + 100)
+                observations.append({
+                    "description": f"Core adaptive budget: {previous_budget} -> {max_requests} requests",
+                    "evidence": {"kind": "control", "purpose": "adaptive-web-budget",
+                                 "previous_budget": previous_budget, "new_budget": max_requests,
+                                 "ceiling": ceiling, "healthy_responses": successful_since_growth,
+                                 "reason": "validated same-origin pages and remaining evidence frontier"},
+                    "finding": False, "source": "surface-recon-core",
+                })
+                successful_since_growth = 0
+                budget_extensions += 1
             queue.sort(key=lambda item: item.priority, reverse=True)
             item = queue.pop(0)
             # Static visual/style assets are recorded but not fetched: less noise and traffic.
@@ -428,6 +460,8 @@ def recon_url(
                 queue.insert(0, item)
                 continue
             discovered.append(child_final)
+            if 200 <= child_status < 300:
+                successful_since_growth += 1
             child_type = child_headers.get("Content-Type", "")
             actual_kind = _classify(child_final, child_type, item.kind)
             observations.append({"description": f"Core discovered {actual_kind}: HTTP {child_status} {child_final}",
@@ -483,6 +517,8 @@ def recon_url(
             stop_reason = "request-budget-exhausted"
         observations.append({"description": f"Core decision: reconnaissance stopped after {requests} request(s): {stop_reason}",
             "evidence": {"kind": "decision", "requests": requests, "budget": max_requests,
+                         "initial_budget": initial_budget, "adaptive_ceiling": ceiling,
+                         "budget_extensions": budget_extensions,
                          "time_budget_seconds": max_seconds, "elapsed_seconds": round(time.monotonic() - started, 3),
                          "stop_reason": stop_reason, "remaining_candidates": len(queue)},
             "finding": False, "source": "surface-recon-core"})
@@ -494,6 +530,8 @@ def recon_url(
 def recon_target(target: Target, *, progress=None) -> CoreExecution:
     if target.target_type == "url":
         from .controls import current_controls
-        requests, seconds = current_controls.get().web_budget
-        return recon_url(target, max_requests=requests, max_seconds=seconds, progress=progress)
+        policy = current_controls.get()
+        requests, seconds = policy.web_budget
+        return recon_url(target, max_requests=requests, max_seconds=seconds,
+                         progress=progress, adaptive_ceiling=policy.adaptive_web_ceiling)
     return CoreExecution(False, [], (), [], f"Core reconnaissance for {target.target_type or 'unresolved'} is not implemented yet.")
