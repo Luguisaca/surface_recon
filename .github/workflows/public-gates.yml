@@ -2,9 +2,12 @@ name: Public Gates
 on:
   pull_request:
     branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
   workflow_dispatch:
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 jobs:
   public-surface:
     name: public-surface
@@ -12,6 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: python tools/public_surface_gate.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   policy:
     name: policy
     runs-on: ubuntu-latest

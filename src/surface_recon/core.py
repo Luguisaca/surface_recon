@@ -8,13 +8,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html.parser import HTMLParser
 import hashlib
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timezone
 import re
 import socket
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from .model import Target
 from .interpretation import interpret_http_response
@@ -79,13 +81,45 @@ def _safe_same_origin(base: str, value: str) -> str | None:
     return urlunparse((p.scheme, p.netloc, p.path or "/", p.params, p.query, ""))
 
 
+class _ScopedRedirectHandler(HTTPRedirectHandler):
+    """Allow HTTP redirects only within the origin of the requested URL."""
+
+    def __init__(self, initial_url: str):
+        self.initial_origin = _origin(initial_url)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if _origin(newurl) != self.initial_origin:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _fetch(url: str, timeout: float = 4.0, max_bytes: int = 2_000_000) -> tuple[int, dict[str, str], bytes, str]:
+    from .controls import checkpoint
+    checkpoint(pace=True)
     req = Request(url, headers={"User-Agent": "Surface_Recon/0.2 (+authorized-recon)"})
+    # urllib normally follows cross-origin Location headers. Prevent any
+    # out-of-scope HTTP request, including on the initial entrypoint.
+    opener = build_opener(_ScopedRedirectHandler(url))
     try:
-        with urlopen(req, timeout=timeout) as response:
+        with opener.open(req, timeout=timeout) as response:
             return response.status, dict(response.headers.items()), response.read(max_bytes), response.geturl()
     except HTTPError as exc:
         return exc.code, dict(exc.headers.items()), exc.read(max_bytes), exc.geturl()
+
+
+def _retry_delay(status: int, headers: dict[str, str]) -> float:
+    if status not in {429, 503}:
+        return 0.0
+    value = next((v for k, v in headers.items() if k.lower() == "retry-after"), None)
+    if value:
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            try:
+                return max(0.0, (parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds())
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return 5.0
 
 
 def _response_fingerprint(status: int, headers: dict[str, str], body: bytes) -> tuple[int, str, str]:
@@ -210,6 +244,7 @@ def _hypothesis_candidates(base: str, evidence_text: str, signals: list[str]) ->
 def recon_url(
     target: Target, *, max_requests: int | None = 30, max_seconds: float | None = 120.0,
     progress: Callable[[str], None] | None = None,
+    adaptive_ceiling: int | None = None,
 ) -> CoreExecution:
     target.require_authorized()
     base = target.value
@@ -237,11 +272,31 @@ def recon_url(
 
         emit(f"web: probing entrypoint {base}")
         status, headers, body, final_url = _fetch(base)
+        if status in {429, 503} or 300 <= status < 400:
+            kind = "throttle" if status in {429, 503} else "redirect-unfollowed"
+            observations.append({
+                "description": f"Core entrypoint HTTP {status}: no further requests",
+                "evidence": {"kind": kind, "url": base, "status": status,
+                    "retry_after_seconds": _retry_delay(status, headers) if kind == "throttle" else None,
+                    "location": headers.get("Location") if kind != "throttle" else None},
+                "finding": False, "source": "surface-recon-core",
+            })
+            covered.add("content-discovery-partial")
+            observations.append({
+                "description": "Core stopped before site discovery due to server response",
+                "evidence": {"kind": "decision", "requests": 1, "budget": max_requests,
+                    "time_budget_seconds": max_seconds,
+                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                    "stop_reason": "server-rate-limit" if kind == "throttle" else "redirect-unfollowed",
+                    "remaining_candidates": 0},
+                "finding": False, "source": "surface-recon-core",
+            })
+            return CoreExecution(True, observations, tuple(sorted(covered)), discovered)
         ctype = headers.get("Content-Type", "")
         text = body.decode("utf-8", errors="replace")
         signals = _technology_signals(headers, text)
         observations.append({"description": f"Core: HTTP {status} {final_url}",
-            "evidence": {"kind": "entrypoint", "url": final_url, "status": status, "content_type": ctype,
+            "evidence": {"kind": "not_found" if status in {404, 410} else "entrypoint", "url": final_url, "status": status, "content_type": ctype,
                          "server": headers.get("Server"), "content_length_observed": len(body)},
             "finding": False, "source": "surface-recon-core"})
         if signals:
@@ -262,7 +317,24 @@ def recon_url(
             try:
                 nf_status, nf_headers, nf_body, _ = _fetch(canary)
                 requests += 1
-                soft_not_found = _response_fingerprint(nf_status, nf_headers, nf_body)
+                if nf_status in {429, 503}:
+                    observations.append({
+                        "description": f"Core canary HTTP {nf_status}: stop to respect server limit",
+                        "evidence": {"kind": "throttle", "url": canary, "status": nf_status,
+                                     "retry_after_seconds": _retry_delay(nf_status, nf_headers)},
+                        "finding": False, "source": "surface-recon-core",
+                    })
+                    covered.add("content-discovery-partial")
+                    observations.append({
+                        "description": "Core stopped at canary due to server rate limit",
+                        "evidence": {"kind": "decision", "requests": requests, "budget": max_requests,
+                            "time_budget_seconds": max_seconds,
+                            "elapsed_seconds": round(time.monotonic() - started, 3),
+                            "stop_reason": "server-rate-limit", "remaining_candidates": 0},
+                        "finding": False, "source": "surface-recon-core",
+                    })
+                    return CoreExecution(True, observations, tuple(sorted(covered)), discovered)
+                soft_not_found = _response_fingerprint(nf_status, nf_headers, nf_body) if nf_status not in range(300,400) else None
                 observations.append({
                     "description": "Core control: learned missing-route response fingerprint",
                     "evidence": {"kind": "control", "purpose": "soft-not-found-baseline",
@@ -272,6 +344,16 @@ def recon_url(
             except (URLError, OSError, TimeoutError):
                 pass
 
+        throttle_attempts: dict[str, int] = {}
+        server_rate_limited = False
+        initial_budget = max_requests
+        successful_since_growth = 0
+        budget_extensions = 0
+        # Never weaken explicit request budgets or unbounded profiles. The
+        # adaptive ceiling applies only when recon_target opts into auto mode.
+        ceiling = max(max_requests, adaptive_ceiling) if (
+            adaptive_ceiling is not None and max_requests is not None
+        ) else None
         queue: list[Candidate] = []
         known = {final_url}
         if "html" in ctype.lower() or "<html" in text[:4096].lower():
@@ -292,12 +374,38 @@ def recon_url(
             observations.append({
                 "description": f"Core hypothesis: {hypothesis} -> {candidate}",
                 "evidence": {"kind": "hypothesis", "hypothesis": hypothesis, "url": candidate,
-                             "reason": "derived from observed application/technology evidence"},
+                             "reason": f"Convención candidata {hypothesis}; derivada de los tokens observados, aún no confirma la ruta.",
+                             "basis": {"url": final_url, "status": status, "signals": signals,
+                                "triggers": [trigger for name, triggers, _ in _HYPOTHESES if name == hypothesis
+                                    for trigger in triggers if re.search(rf'(?<![a-z0-9]){re.escape(trigger)}(?![a-z0-9])', (text + ' ' + ' '.join(signals)).lower())]}},
                 "finding": False, "source": "surface-recon-core",
             })
             _add(queue, known, final_url, candidate, f"hypothesis:{hypothesis}", "interesting")
 
-        while queue and (max_requests is None or requests < max_requests) and (max_seconds is None or time.monotonic() - started < max_seconds):
+        while queue and (max_seconds is None or time.monotonic() - started < max_seconds):
+            # Expand an exhausted auto budget only when successful same-origin
+            # responses have justified it. Each increment requires fresh healthy
+            # responses; a site of mostly errors cannot keep expanding the scan.
+            if max_requests is not None and requests >= max_requests:
+                if not (
+                    ceiling is not None
+                    and max_requests < ceiling
+                    and successful_since_growth >= 25
+                    and any(candidate.kind != "asset" for candidate in queue)
+                ):
+                    break
+                previous_budget = max_requests
+                max_requests = min(ceiling, max_requests + 100)
+                observations.append({
+                    "description": f"Core adaptive budget: {previous_budget} -> {max_requests} requests",
+                    "evidence": {"kind": "control", "purpose": "adaptive-web-budget",
+                                 "previous_budget": previous_budget, "new_budget": max_requests,
+                                 "ceiling": ceiling, "healthy_responses": successful_since_growth,
+                                 "reason": "validated same-origin pages and remaining evidence frontier"},
+                    "finding": False, "source": "surface-recon-core",
+                })
+                successful_since_growth = 0
+                budget_extensions += 1
             queue.sort(key=lambda item: item.priority, reverse=True)
             item = queue.pop(0)
             # Static visual/style assets are recorded but not fetched: less noise and traffic.
@@ -312,15 +420,48 @@ def recon_url(
                 requests += 1
             except (URLError, OSError, TimeoutError):
                 continue
-            if soft_not_found and _response_fingerprint(child_status, child_headers, child_body) == soft_not_found:
+            if 300 <= child_status < 400:
                 observations.append({
-                    "description": f"Core rejected soft-not-found candidate: {child_final}",
-                    "evidence": {"kind": "not_found", "url": child_final, "status": child_status,
-                                 "discovered_from": item.source, "reason": "matches missing-route baseline"},
+                    "description": f"Core did not follow redirect from {item.url}",
+                    "evidence": {"kind": "redirect-unfollowed", "url": item.url,
+                                 "status": child_status, "location": child_headers.get("Location")},
                     "finding": False, "source": "surface-recon-core",
                 })
                 continue
+            if child_status in {404, 410} or (soft_not_found and _response_fingerprint(child_status, child_headers, child_body) == soft_not_found):
+                observations.append({
+                    "description": f"Core rejected soft-not-found candidate: {child_final}",
+                    "evidence": {"kind": "not_found", "url": child_final, "status": child_status,
+                                 "discovered_from": item.source, "candidate_url": item.url,
+                                 "reason": "HTTP not found" if child_status in {404, 410} else "matches missing-route baseline"},
+                    "finding": False, "source": "surface-recon-core",
+                })
+                continue
+            delay = _retry_delay(child_status, child_headers)
+            if child_status in {429, 503}:
+                observations.append({"description": f"Core throttle: HTTP {child_status}; pause requested {delay:.1f}s",
+                    "evidence": {"kind": "throttle", "url": child_final, "status": child_status,
+                                 "retry_after_seconds": delay, "action": "stop-if-unreasonable-or-wait"},
+                    "finding": False, "source": "surface-recon-core"})
+                remaining = None if max_seconds is None else max_seconds - (time.monotonic() - started)
+                throttle_attempts[item.url] = throttle_attempts.get(item.url, 0) + 1
+                if throttle_attempts[item.url] > 2 or delay > 60 or (remaining is not None and delay >= remaining):
+                    server_rate_limited = True
+                    queue.insert(0, item)
+                    break
+                from .controls import current_cancel
+                cancel = current_cancel.get()
+                if cancel is not None:
+                    if cancel.wait(delay):
+                        from .controls import ReconCancelled
+                        raise ReconCancelled("Reconocimiento cancelado por el usuario.")
+                else:
+                    time.sleep(delay)
+                queue.insert(0, item)
+                continue
             discovered.append(child_final)
+            if 200 <= child_status < 300:
+                successful_since_growth += 1
             child_type = child_headers.get("Content-Type", "")
             actual_kind = _classify(child_final, child_type, item.kind)
             observations.append({"description": f"Core discovered {actual_kind}: HTTP {child_status} {child_final}",
@@ -347,6 +488,16 @@ def recon_url(
                 for candidate, hinted in passive:
                     _add(queue, known, final_url, candidate, child_final, hinted)
 
+        negative_urls = {str(obs["evidence"].get(key)) for obs in observations
+                         if obs["evidence"].get("kind") == "not_found"
+                         for key in ("url", "candidate_url") if obs["evidence"].get(key)}
+        for obs in observations:
+            data = obs["evidence"]
+            if data.get("kind") in {"hypothesis", "security-hypothesis"} and data.get("url") in negative_urls:
+                data["original_kind"] = data["kind"]
+                data["kind"] = "discarded-hypothesis"
+                data["disposition_reason"] = "Demonstrated not-found response; not active surface."
+
         # Discovery coverage describes whether the evidence frontier was evaluated,
         # not whether it happened to yield a resource. An explicit QA budget can
         # leave the operation partial; an exhausted frontier is a completed check.
@@ -358,12 +509,16 @@ def recon_url(
         covered.add("input-surface-analysis")
         if not queue:
             stop_reason = "frontier-exhausted"
+        elif server_rate_limited:
+            stop_reason = "server-rate-limit"
         elif max_seconds is not None and time.monotonic() - started >= max_seconds:
             stop_reason = "time-budget-exhausted"
         else:
             stop_reason = "request-budget-exhausted"
         observations.append({"description": f"Core decision: reconnaissance stopped after {requests} request(s): {stop_reason}",
             "evidence": {"kind": "decision", "requests": requests, "budget": max_requests,
+                         "initial_budget": initial_budget, "adaptive_ceiling": ceiling,
+                         "budget_extensions": budget_extensions,
                          "time_budget_seconds": max_seconds, "elapsed_seconds": round(time.monotonic() - started, 3),
                          "stop_reason": stop_reason, "remaining_candidates": len(queue)},
             "finding": False, "source": "surface-recon-core"})
@@ -374,5 +529,9 @@ def recon_url(
 
 def recon_target(target: Target, *, progress=None) -> CoreExecution:
     if target.target_type == "url":
-        return recon_url(target, progress=progress)
+        from .controls import current_controls
+        policy = current_controls.get()
+        requests, seconds = policy.web_budget
+        return recon_url(target, max_requests=requests, max_seconds=seconds,
+                         progress=progress, adaptive_ceiling=policy.adaptive_web_ceiling)
     return CoreExecution(False, [], (), [], f"Core reconnaissance for {target.target_type or 'unresolved'} is not implemented yet.")

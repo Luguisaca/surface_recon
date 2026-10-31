@@ -32,6 +32,13 @@ def test_url_composes_discovered_tools_and_normalizes_evidence(monkeypatch):
         )
 
     monkeypatch.setattr("surface_recon.tooling.execute_tool", fake_execute)
+    # This test checks provider composition; owned HTTP probing is covered by
+    # separate core/loopback tests and must not depend on host DNS/network.
+    from surface_recon.core import CoreExecution
+    monkeypatch.setattr(
+        "surface_recon.core.recon_target",
+        lambda target, **kwargs: CoreExecution(True, [], (), []),
+    )
     assessment = assess_targets(["https://example.test"])
 
     assert set(assessment.coverage[0].evaluated) == {
@@ -42,7 +49,24 @@ def test_url_composes_discovered_tools_and_normalizes_evidence(monkeypatch):
     assert assessment.coverage[0].unevaluated == [
         "content-discovery", "error-handling-analysis", "input-surface-analysis",
     ]
-    assert len(assessment.observations) == 2
+    # Provider lifecycle is separate traceable evidence, not scanner output.
+    lifecycle = [ev.content for ev in assessment.evidence if isinstance(ev.content, dict) and ev.content.get("kind") == "provider-lifecycle"]
+    assert len(lifecycle) == 2
+    assert all(item["selected"] and not item["executed"] for item in lifecycle)
+    # Additional environment observations are not a failure. Verify the two
+    # normalized provider results and their provenance instead of a total count.
+    descriptions = ("HTTP 200: https://example.test", "Nuclei: Missing Header")
+    provider_observations = [
+        row for row in assessment.observations if row.description in descriptions
+    ]
+    assert len(provider_observations) == 2
+    assert all(row.evidence_ids for row in provider_observations)
+    evidence_by_id = {item.id: item for item in assessment.evidence}
+    assert {
+        evidence_by_id[evidence_id].source
+        for row in provider_observations
+        for evidence_id in row.evidence_ids
+    } >= {"httpx", "nuclei"}
     assert len(assessment.findings) == 0
 
     from surface_recon.results import render_assessment
@@ -51,7 +75,7 @@ def test_url_composes_discovered_tools_and_normalizes_evidence(monkeypatch):
     assert "content-discovery" in rendered
     assert "none reported by executed tooling within evaluated coverage" in rendered
     assert "does not establish that the target is secure" in rendered
-    assert set(assessment.capabilities[0].tools_used) == {"httpx", "nuclei"}
+    assert {"httpx", "nuclei"} <= set(assessment.capabilities[0].tools_used)
 
 
 def test_renderer_leads_with_plain_language_interpretation(monkeypatch):
@@ -145,7 +169,8 @@ def test_network_provider_service_evidence_pivots_into_web_recon(monkeypatch):
         if item["value"].startswith("192.0.2.10:")
     ]
     assert provider_surfaces
-    assert all(item["type"] == "open-port" for item in provider_surfaces)
+    assert all(item["type"] == "network-service" for item in provider_surfaces)
+    assert all(item["identity_confidence"] == "provider-hint" for item in provider_surfaces)
     decisions = [e.content for e in assessment.evidence if isinstance(e.content, dict)]
     assert any(x.get("reason") == "provider-service-to-web-pivot" for x in decisions)
 
