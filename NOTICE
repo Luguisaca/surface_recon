@@ -1,0 +1,31 @@
+Required Notice: Copyright 2026 LUGUISACA
+
+Surface_Recon is licensed under the PolyForm Noncommercial License 1.0.0.
+Official terms: https://polyformproject.org/licenses/noncommercial/1.0.0
+Commercial rights, when available, require a separate written agreement with the rightsholder.
+
+Third-party dependencies (locked versions):
+The source archive does not vendor these third-party distributions. They are
+installed separately by the Python package manager under their own terms.
+The project's PolyForm license does not replace upstream dependency licenses.
+
+Runtime dependencies:
+- argcomplete 3.7.2 — Apache Software License (Apache-2.0).
+  Package: https://pypi.org/project/argcomplete/3.7.2/
+  The installed distribution contains its own Apache license and NOTICE.
+- pefile 2024.8.26 — MIT License.
+  Package: https://pypi.org/project/pefile/2024.8.26/
+
+Development and test dependencies (not bundled in the application wheel):
+- colorama 0.4.6 — BSD License (upstream package metadata).
+- iniconfig 2.3.0 — MIT License.
+- packaging 26.3 — Apache-2.0 OR BSD-2-Clause.
+- pluggy 1.6.0 — MIT License.
+- pygments 2.21.0 — BSD-2-Clause.
+- pytest 9.1.1 — MIT License.
+
+License classifications above are based on the installed distributions'
+metadata and checked license file inventories; the complete terms and notices
+for each dependency travel with the respective installed distribution.
+If dependencies are later vendored or bundled into an installer, independently
+check and include all required upstream copyright, license and NOTICE texts.
